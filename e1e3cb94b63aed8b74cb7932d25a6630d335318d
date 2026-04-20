@@ -1,0 +1,27 @@
+hooks/post-commit
+  de633b87e2d25ae2 1-64
+install.sh
+  de633b87e2d25ae2 100-129
+README.md
+  de633b87e2d25ae2 39-40,67-80,84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "e1e3cb94b63aed8b74cb7932d25a6630d335318d",
+  "prompts": {
+    "de633b87e2d25ae2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2d585f31-4cbd-4726-abdc-5740a94827ac",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "luke",
+      "messages": [],
+      "total_additions": 111,
+      "total_deletions": 4,
+      "accepted_lines": 111,
+      "overriden_lines": 0
+    }
+  }
+}
