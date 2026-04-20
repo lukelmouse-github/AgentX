@@ -1,0 +1,23 @@
+.claude-plugin/plugin.json
+  a1730cc1824f5ef3 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "15581806341ccf430623d46279b7cda5d3afc27b",
+  "prompts": {
+    "a1730cc1824f5ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "749a32fb-2e0c-4da9-a385-0ee9402b8fae",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
