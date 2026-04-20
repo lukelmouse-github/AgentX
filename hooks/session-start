@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# AX SessionStart hook — inject minimal context about /ax availability
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# AX is disabled by default. Enable per-project with .ax.json: {"enabled": true}
+ax_config="${PWD}/.ax.json"
+if [ ! -f "$ax_config" ]; then
+    printf '{}\n'
+    exit 0
+fi
+enabled=$(grep -o '"enabled"[[:space:]]*:[[:space:]]*true' "$ax_config" 2>/dev/null || true)
+if [ -z "$enabled" ]; then
+    printf '{}\n'
+    exit 0
+fi
+
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Check claude-mem availability
+claude_mem_available="false"
+if curl -s --max-time 1 http://localhost:37777/api/health >/dev/null 2>&1; then
+    claude_mem_available="true"
+fi
+
+# Check for existing knowledge docs
+has_knowledge="false"
+if [ -d "docs/ai-context" ] || [ -d ".agents/skills" ]; then
+    has_knowledge="true"
+fi
+
+context="You have the AX plugin installed — a project knowledge sedimentation tool.\\n\\n"
+context+="Available commands:\\n"
+context+="- /ax [prompt] — analyze session, extract and save valuable knowledge as docs/skills\\n"
+context+="- /ax-status — check document freshness and health\\n"
+context+="- /ax-merge — AI-assisted merge for knowledge file conflicts\\n\\n"
+context+="claude-mem: ${claude_mem_available}\\n"
+context+="existing knowledge docs: ${has_knowledge}"
+
+session_context=$(escape_for_json "$context")
+
+if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
+    printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
+elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
+    printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
+else
+    printf '{\n  "additionalContext": "%s"\n}\n' "$session_context"
+fi
+
+exit 0

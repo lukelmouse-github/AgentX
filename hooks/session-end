@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# AX SessionEnd (Stop) hook — detect valuable content and suggest /ax
+
+set -euo pipefail
+
+# AX is disabled by default. Enable per-project with .ax.json: {"enabled": true}
+ax_config="${PWD}/.ax.json"
+if [ ! -f "$ax_config" ]; then
+    printf '{}\n'
+    exit 0
+fi
+enabled=$(grep -o '"enabled"[[:space:]]*:[[:space:]]*true' "$ax_config" 2>/dev/null || true)
+if [ -z "$enabled" ]; then
+    printf '{}\n'
+    exit 0
+fi
+
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Determine state directory for this project
+project_hash=$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)
+state_dir="${HOME}/.claude-ax/${project_hash}"
+mkdir -p "$state_dir"
+
+# Read last /ax timestamp
+last_ax_ts="0"
+ts_file="${state_dir}/last_ax_ts"
+if [ -f "$ts_file" ]; then
+    last_ax_ts=$(cat "$ts_file")
+fi
+
+now=$(date +%s)
+elapsed=$((now - last_ax_ts))
+
+# Skip if /ax was run recently (within 5 minutes)
+if [ "$elapsed" -lt 300 ]; then
+    printf '{}\n'
+    exit 0
+fi
+
+# Heuristic: check if meaningful work happened
+# Count modified files in working tree
+changed_files=$(git diff --name-only HEAD 2>/dev/null | wc -l | tr -d ' ')
+staged_files=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+total_changes=$((changed_files + staged_files))
+
+# Check if claude-mem has new observations since last /ax
+new_obs_count=0
+if curl -s --max-time 1 http://localhost:37777/api/health >/dev/null 2>&1; then
+    new_obs_count=$(curl -s --max-time 3 "http://localhost:37777/api/observations?since=${last_ax_ts}" 2>/dev/null | grep -c '"type"' 2>/dev/null || echo "0")
+fi
+
+# Value scoring
+score=0
+[ "$total_changes" -gt 3 ] && score=$((score + 2))
+[ "$total_changes" -gt 0 ] && score=$((score + 1))
+[ "$new_obs_count" -gt 5 ] && score=$((score + 2))
+[ "$new_obs_count" -gt 0 ] && score=$((score + 1))
+[ "$elapsed" -gt 600 ] && score=$((score + 1))
+
+# Threshold: only suggest if score >= 3
+if [ "$score" -lt 3 ]; then
+    printf '{}\n'
+    exit 0
+fi
+
+message="Detected ${total_changes} file changes"
+if [ "$new_obs_count" -gt 0 ]; then
+    message+=", ${new_obs_count} new observations"
+fi
+message+=". Consider running /ax to extract and save valuable knowledge."
+
+context=$(escape_for_json "$message")
+
+if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
+    printf '{\n  "additional_context": "%s"\n}\n' "$context"
+elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
+    printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "Stop",\n    "additionalContext": "%s"\n  }\n}\n' "$context"
+else
+    printf '{\n  "additionalContext": "%s"\n}\n' "$context"
+fi
+
+exit 0
