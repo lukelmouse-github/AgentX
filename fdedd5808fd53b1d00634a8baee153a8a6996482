@@ -1,0 +1,40 @@
+README.md
+  61e48c950441f0c0 16-121
+install.sh
+  61e48c950441f0c0 1-113
+.claude-plugin/plugin.json
+  a1730cc1824f5ef3 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "fdedd5808fd53b1d00634a8baee153a8a6996482",
+  "prompts": {
+    "61e48c950441f0c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34464c9f-9a03-4bf6-87cb-b4ad7902073a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 259,
+      "total_deletions": 131,
+      "accepted_lines": 147,
+      "overriden_lines": 0
+    },
+    "a1730cc1824f5ef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "749a32fb-2e0c-4da9-a385-0ee9402b8fae",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
