@@ -97,7 +97,36 @@ with open(settings_path, "w") as f:
     f.write("\n")
 PYEOF
 
-# ── 4. Create .ax.json ────────────────────────────────────────────────
+# ── 4. Install git post-commit hook ───────────────────────────────────
+GIT_HOOKS_DIR="${PROJECT_ROOT}/.git/hooks"
+POST_COMMIT="${GIT_HOOKS_DIR}/post-commit"
+
+if [ -d "$GIT_HOOKS_DIR" ]; then
+    AX_HOOK_LINE='. "$(git rev-parse --show-toplevel)/.ax/hooks/post-commit"'
+
+    if [ -f "$POST_COMMIT" ]; then
+        if grep -qF ".ax/hooks/post-commit" "$POST_COMMIT" 2>/dev/null; then
+            echo "[ax]   skip git hook: post-commit (already configured)"
+        else
+            # Append to existing post-commit hook
+            echo "" >> "$POST_COMMIT"
+            echo "# AX post-commit hook" >> "$POST_COMMIT"
+            echo "$AX_HOOK_LINE" >> "$POST_COMMIT"
+            chmod +x "$POST_COMMIT"
+            echo "[ax]   appended to git hook: post-commit"
+        fi
+    else
+        # Create new post-commit hook
+        cat > "$POST_COMMIT" << 'HOOKEOF'
+#!/usr/bin/env bash
+HOOKEOF
+        echo "$AX_HOOK_LINE" >> "$POST_COMMIT"
+        chmod +x "$POST_COMMIT"
+        echo "[ax]   created git hook: post-commit"
+    fi
+fi
+
+# ── 5. Create .ax.json ────────────────────────────────────────────────
 AX_CONF="${PROJECT_ROOT}/.ax.json"
 if [ ! -f "$AX_CONF" ]; then
     echo '{"enabled": true}' > "$AX_CONF"

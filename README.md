@@ -36,7 +36,8 @@ git commit -m 'chore: add AX knowledge sedimentation plugin'
 1. 将 AX 源码嵌入项目 `.ax/` 目录（去掉 git 历史）
 2. 在 `.claude/skills/` 建立相对路径软链接
 3. 在项目级 `.claude/settings.json` 配置 hooks（不影响用户全局配置）
-4. 创建 `.ax.json` 启用
+4. 安装 git `post-commit` hook（手动 commit 后提示是否运行 AX）
+5. 创建 `.ax.json` 启用
 
 所有配置都在项目内部，使用相对路径，任何人 clone 后开箱即用。
 
@@ -63,11 +64,24 @@ AX 通过项目根目录的 `.ax.json` 控制开关：
 
 prompt 可以是中文或英文自由描述，AX 围绕重点提取。无 prompt 时全面扫描。
 
-### 2. SessionEnd 自动提示
+### 2. Git Commit 自动提示
+
+在 Claude Code **外部**手动 `git commit` 后，会自动弹出提示：
+
+```
+[ax] Commit a1b2c3d: fix: resolve cache invalidation bug
+[ax] Run AX to extract knowledge from this session? [y/N]
+```
+
+输入 `y` 自动启动 Claude Code 执行 `/ax` 分析并沉淀知识，输入 `n` 或直接回车跳过。
+
+> 在 Claude Code 会话内的 commit 不会触发此提示（由 SessionEnd hook 处理）。
+
+### 3. SessionEnd 自动提示
 
 会话结束时自动检测是否有值得沉淀的内容。通过增量检测 + 价值评估决定是否提示。
 
-### 3. 项目级开关
+### 4. 项目级开关
 
 AX 全局默认关闭。在项目根目录创建 `.ax.json` 启用：
 

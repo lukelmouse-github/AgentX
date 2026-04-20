@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# AX post-commit hook — prompt user to run /ax after commit
+
+set -euo pipefail
+
+# AX is disabled by default. Enable per-project with .ax.json: {"enabled": true}
+ax_config="${PWD}/.ax.json"
+if [ ! -f "$ax_config" ]; then
+    exit 0
+fi
+enabled=$(grep -o '"enabled"[[:space:]]*:[[:space:]]*true' "$ax_config" 2>/dev/null || true)
+if [ -z "$enabled" ]; then
+    exit 0
+fi
+
+# Skip if not interactive (e.g. rebase, merge --no-edit)
+if [ ! -t 1 ]; then
+    exit 0
+fi
+
+# Skip if inside Claude Code session (session-end hook handles this)
+if [ -n "${CLAUDE_SESSION_ID:-}" ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+    exit 0
+fi
+
+# Get last commit info
+commit_msg=$(git log -1 --pretty=format:"%s" 2>/dev/null || echo "")
+commit_hash=$(git log -1 --pretty=format:"%h" 2>/dev/null || echo "")
+
+echo ""
+echo "[ax] Commit ${commit_hash}: ${commit_msg}"
+printf "[ax] Run AX to extract knowledge from this session? [y/N] "
+
+# Read from terminal directly (git hooks may not have stdin connected to terminal)
+if [ -t 0 ]; then
+    read -r answer
+else
+    read -r answer < /dev/tty 2>/dev/null || answer="n"
+fi
+
+case "$answer" in
+    [yY]|[yY][eE][sS])
+        echo "[ax] Starting AX analysis..."
+        # Find the project root (where .ax.json is)
+        project_root="$PWD"
+        while [ "$project_root" != "/" ]; do
+            if [ -f "${project_root}/.ax.json" ]; then
+                break
+            fi
+            project_root="$(dirname "$project_root")"
+        done
+
+        # Launch claude with /ax in the project directory
+        if command -v claude >/dev/null 2>&1; then
+            cd "$project_root"
+            claude -p "/ax committed: ${commit_msg}"
+        else
+            echo "[ax] Error: 'claude' command not found. Run /ax manually in Claude Code."
+        fi
+        ;;
+    *)
+        exit 0
+        ;;
+esac
