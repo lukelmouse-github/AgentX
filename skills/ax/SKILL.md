@@ -7,13 +7,18 @@ description: "Project knowledge sedimentation — extract valuable knowledge fro
 
 Extract valuable knowledge from AI coding sessions and save it in repo-native paths.
 
+## 初次设置
+
+如果项目尚未配置沉淀决策脚本，可以先运行 `/ax:init` 为项目生成自定义的触发策略。
+该脚本会根据项目类型和关键文件，智能判断哪些对话值得触发沉淀建议，替代默认的工具调用计数。
+
 ## Usage
 
 ```text
-/ax
-/ax <prompt>
-/ax architecture
-/ax skill <name>
+/ax:ax
+/ax:ax <prompt>
+/ax:ax architecture
+/ax:ax skill <name>
 ```
 
 ## Workflow
@@ -22,7 +27,7 @@ Follow these steps in order.
 
 ### Step 0: Pick Exactly One History Adapter
 
-Use the adapter that matches the **current agent**. Do not read another agent's local history in the same `/ax` run.
+Use the adapter that matches the **current agent**. Do not read another agent's local history in the same run.
 
 | Agent | Adapter |
 |------|---------|
@@ -194,7 +199,7 @@ If an overlapping file exists, update it instead of creating a duplicate.
 for ref in $(python3 -c "
 import re, sys
 draft = sys.stdin.read()
-for ref in re.findall(r'@([\\w/.,-]+\\.\\w+)', draft):
+for ref in re.findall(r'@([\w/.,-]+\.\w+)', draft):
     print(ref)
 " <<'EOF'
 <draft content>
@@ -216,17 +221,8 @@ For confirmed files:
 
 1. Write the file content.
 2. Update the nearest parent `AGENTS.md` with an `@` reference when needed.
-3. If the write created or updated `.agents/skills/{name}/SKILL.md`, sync Claude Code adapters:
-
-```bash
-PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-if [ -f "$PROJECT_ROOT/.ax/scripts/sync_claude_skills.py" ]; then
-  python3 "$PROJECT_ROOT/.ax/scripts/sync_claude_skills.py" "$PROJECT_ROOT"
-fi
-```
-
-4. If `AGENTS.md` does not exist at the project root, create it with an `@.ax/RULES.md` reference.
-5. If `CLAUDE.md` does not exist, create it as a symlink or pointer to `AGENTS.md`.
+3. If `AGENTS.md` does not exist at the project root, create it with sedimentation rules.
+4. If `CLAUDE.md` does not exist, create it as a symlink or pointer to `AGENTS.md`.
 
 ### Step 6: Summary
 
@@ -246,12 +242,18 @@ Never auto-commit.
 - Use `@` references to link related docs.
 - Follow the existing AGENTS hierarchy when it exists.
 
-### Supported Agents
+### Cross-Agent Compatibility
 
-| Tool | Knowledge Entry | Skill Consumption |
-|------|-----------------|------------------|
-| Claude Code | `CLAUDE.md` + SessionStart hook | `.claude/skills/` symlinks to `.ax/skills/ax` and `.agents/skills/*` |
-| Codex | `AGENTS.md` | `.agents/skills/` |
+沉淀产物使用通用格式，确保所有 coding agent 都能消费：
+
+| 产物 | 路径 | 消费方式 |
+|------|------|---------|
+| 项目入口 | `AGENTS.md` | Codex 原生读取；Claude Code 通过 `CLAUDE.md` 软链接读取 |
+| 架构知识 | `docs/ai-context/*.md` | 所有 agent 通过 `@` 引用读取 |
+| 项目技能 | `.agents/skills/*/SKILL.md` | 通用 skill 格式，各 agent 按自身机制发现 |
+| 模块上下文 | `{module}/AGENTS.md` | 所有 agent 通过目录遍历发现 |
+
+不要把知识写入 agent 专属路径（如 `.claude/`）。所有沉淀只写入上述通用路径。
 
 ### AGENTS.md Template
 
@@ -265,7 +267,7 @@ Never auto-commit.
 
 ### 知识沉淀
 项目知识只写入 `.agents/skills/`、`docs/ai-context/` 和模块 `AGENTS.md`。
-所有沉淀与知识修订都必须通过 `/ax` 流程完成，详见 @.ax/RULES.md。
+所有沉淀与知识修订都必须通过 `/ax:ax` 流程完成。
 
 ## Quick Start
 Key commands and setup.
@@ -283,5 +285,6 @@ High-level architecture summary.
 ## Key Principles
 
 - Human in the loop: every write requires explicit confirmation.
-- Repo-native knowledge: project docs and project skills live outside `.ax/`.
+- Repo-native knowledge: project docs and project skills live outside any agent-specific directory.
+- Cross-agent compatible: all output uses `AGENTS.md` + `.agents/skills/` + `docs/ai-context/` — formats every coding agent can read.
 - One adapter per run: only read the history source that matches the current agent.

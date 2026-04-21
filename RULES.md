@@ -2,7 +2,7 @@
 
 ## 核心约束
 
-**所有知识沉淀必须通过 `/ax` 流程完成。** 不允许 agent 自行直接写入 `docs/ai-context/`、`.agents/skills/` 或 `AGENTS.md` 中的沉淀内容。`/ax` 负责预览、验证、确认和落盘。
+**所有知识沉淀必须通过 `/ax:ax` 流程完成。** 不允许 agent 自行直接写入 `docs/ai-context/`、`.agents/skills/` 或 `AGENTS.md` 中的沉淀内容。`/ax:ax` 负责预览、验证、确认和落盘。
 
 项目知识的 canonical 路径只有三类：
 
@@ -10,16 +10,22 @@
 - `.agents/skills/`：可复用工作流
 - `{module}/AGENTS.md`：模块上下文
 
-`.ax/` 是 AX 自己的运行时目录，不是项目知识的沉淀目标。
+不要把知识写入任何 agent 专属路径（如 `.claude/`、`.codex/`）。所有沉淀只使用上述通用路径，确保跨 agent 可读。
 
 ## 自动沉淀规则
 
-完成以下类型的工作后，**调用 `/ax` 评估是否沉淀**：
+Stop hook 会在对话结束时自动评估是否达到沉淀条件。达标后 Claude 自动执行 `/ax:ax` 分析和预览，用户确认后写入。
+
+触发条件（由 `.ax/profile.yaml` 或内置默认规则决定）：
 
 - 多步骤调试（5+ 次工具调用）并最终定位到 root cause
 - 发现代码中非显而易见的约定、陷阱或架构约束
 - 实现了可复用的工作流（部署、排错、集成、迁移等）
-- 修复了对团队有参考价值的 tricky bug
+- 修改了项目关键路径的核心文件
+
+如果项目已配置 `.ax/profile.yaml`（通过 `/ax:init` 生成），Stop hook 按项目策略判断。否则使用默认规则。
+
+当用户拒绝沉淀预览时，UserPromptSubmit hook 会在下一轮注入反思提示，帮助分析为什么这种信号组合不值得沉淀，以及如何调整 profile 避免类似误触发。
 
 ### 不应沉淀
 
@@ -44,20 +50,18 @@
 
 4. **不自动 commit**：git 操作由用户控制
 
-5. **Claude Code 适配**：如果新增或更新 `.agents/skills/*`，同步 `.claude/skills/*` 到同名相对路径软链接，让 Claude Code 读取项目技能而不是 AX 内置目录。
-
 ## 维护规则
 
-读取已有 Skill 或 AGENTS.md 时，如果发现内容过时、不完整或有误，**先通过 `/ax` 准备更新提案**，再经用户确认后写入。不要直接修改知识文件。
+读取已有 Skill 或 AGENTS.md 时，如果发现内容过时、不完整或有误，**先通过 `/ax:ax` 准备更新提案**，再经用户确认后写入。不要直接修改知识文件。
 
 ## 多 Agent 范围
 
-当前 `/ax` 只要求适配两类 agent：
+当前 `/ax:ax` 适配两类 agent：
 
 - **Claude Code**：允许读取当前会话与 `~/.claude/projects` 下的本地历史
 - **Codex**：只读取当前会话上下文、git 变更和本次任务涉及的文件；不要猜测私有 transcript 路径
 
-在一次 `/ax` 运行中，只能使用与**当前 agent**匹配的那一个历史 adapter，不能混读另一个 agent 的本地日志。
+在一次运行中，只能使用与**当前 agent**匹配的那一个历史 adapter，不能混读另一个 agent 的本地日志。
 
 ## 输出格式
 
@@ -97,9 +101,13 @@ description: "{什么场景下使用}"
 具体示例。
 ```
 
-## 多工具兼容
+## 跨 Agent 兼容
 
-| 工具 | 指令入口 | 技能读取路径 | 说明 |
-|------|---------|-------------|------|
-| Claude Code | `CLAUDE.md` + SessionStart hook | `.claude/skills/` → `.ax/skills/ax` 和 `.agents/skills/*` | Claude 专属适配层 |
-| Codex | `AGENTS.md` | `.agents/skills/` | 原生读取项目知识 |
+沉淀产物使用通用格式，不依赖任何特定 agent 的私有机制：
+
+| 产物 | 路径 | 消费方式 |
+|------|------|---------|
+| 项目入口 | `AGENTS.md` | 所有 agent 读取；Claude Code 通过 `CLAUDE.md → AGENTS.md` 软链接 |
+| 架构知识 | `docs/ai-context/*.md` | 通过 `@` 引用被任何 agent 发现 |
+| 项目技能 | `.agents/skills/*/SKILL.md` | 通用 skill 格式，各 agent 按自身机制发现 |
+| 模块上下文 | `{module}/AGENTS.md` | 目录遍历发现，任何 agent 可读 |

@@ -1,0 +1,7 @@
+{
+  "name": "ax",
+  "version": "0.2.0",
+  "description": "项目级知识沉淀插件 — 把 agent 编码中产生的可复用经验沉淀到项目仓库",
+  "repository": "https://github.com/lukelmouse-github/AgentX",
+  "license": "MIT"
+}
