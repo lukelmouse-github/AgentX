@@ -12,7 +12,11 @@ AX 是一个 Claude Code plugin。它把 agent 在编码、排障、设计过程
 ## 安装
 
 ```bash
-claude plugin install lukelmouse-github/AgentX
+# 1. 添加 marketplace
+/plugin marketplace add lukelmouse-github/AgentX
+
+# 2. 安装插件
+/plugin install ax@lukelmouse-github
 ```
 
 本地开发测试：
