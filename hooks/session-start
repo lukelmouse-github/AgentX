@@ -6,9 +6,9 @@ set -euo pipefail
 read -r -d '' CONTEXT << 'RULES' || true
 ## AX Knowledge Sedimentation
 
-完成复杂工作后（多步调试、tricky bug、发现非显而易见的约定），运行 /ax 进行知识沉淀。**不要自行写入文档，所有沉淀必须通过 /ax 流程。**
+完成复杂工作后（多步调试、tricky bug、发现非显而易见的约定），评估是否需要通过 `/ax` 将经验沉淀到 `docs/ai-context/`、`.agents/skills/` 或 `AGENTS.md`。
 
-读取已有 AGENTS.md 或 skill 时如发现过时，立即更新。详见 @.ax/RULES.md。
+不要直接写入这些知识文件。先通过 `/ax` 生成预览，得到用户确认后再落盘。详见 @.ax/RULES.md。
 RULES
 
 # Escape for JSON

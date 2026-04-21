@@ -1,263 +1,160 @@
-# AX — 项目知识自动沉淀插件
+# AX — 项目知识沉淀插件
 
-## 概述
+AX 是一个项目级知识沉淀插件。它把 agent 在编码、排障、设计过程里产生的可复用经验，沉淀到项目仓库里，再通过 git 共享给团队和其他 agent。
 
-AX 是一个项目级 Claude Code 插件，通过 prompt 注入让 AI agent 自主判断何时沉淀知识，将有价值的技术实践沉淀为 Markdown 文档和 Skill 文件，团队通过 git 共享。
+当前版本先收敛支持两类 agent：
 
-**核心原则：**
-- prompt 驱动：agent 自主判断沉淀时机，无需硬编码规则
-- 所有写入需人工确认
-- 输出兼容 Claude Code / Codex / Cursor
-- 分级目录、@ 引用、每文件 <200 行
+- Claude Code
+- Codex
+
+核心原则：
+
+- 知识是项目资产，不是某个 agent 的私有记忆
+- 项目知识只写入 `AGENTS.md`、`docs/ai-context/`、`.agents/skills/`
+- 所有沉淀都必须经过 `/ax` 预览与人工确认
+- Claude Code 通过适配层读取项目技能，Codex 直接读取项目知识
+
+## 目录分层
+
+安装到项目后，目录职责是：
+
+```text
+{project}/
+├── .ax/                    # AX 运行时：hook、/ax skill、安装脚本、规则
+│   ├── RULES.md
+│   ├── hooks/
+│   ├── skills/ax/
+│   └── scripts/
+├── AGENTS.md               # 项目主入口，Codex 原生读取
+├── CLAUDE.md -> AGENTS.md  # Claude Code 入口
+├── docs/ai-context/        # 项目知识文档
+├── .agents/skills/         # 项目技能，git tracked，跨 agent 共享
+└── .claude/skills/         # Claude Code 适配层（相对路径软链接）
+```
+
+这几个路径的职责不要混：
+
+- `.ax/`：AX 自己的运行时文件
+- `.agents/skills/`：项目技能的 canonical 路径
+- `.claude/skills/`：Claude Code 的消费适配层，不是项目知识的真实归属
 
 ## 安装
 
-### 一键安装（团队中一人执行即可）
+### 远程安装
 
 ```bash
-# 在项目目录下运行
-curl -fsSL https://raw.githubusercontent.com/anthropics/ax/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lukelmouse-github/AgentX/main/install.sh | bash
 
 # 或指定项目路径
-curl -fsSL https://raw.githubusercontent.com/anthropics/ax/main/install.sh | bash -s -- /path/to/project
+curl -fsSL https://raw.githubusercontent.com/lukelmouse-github/AgentX/main/install.sh | bash -s -- /path/to/project
 ```
 
-然后提交：
+### 本地开发安装
 
 ```bash
-git add .ax .claude
-git commit -m 'chore: add AX knowledge sedimentation plugin'
+AX_SOURCE_DIR=$(pwd) bash install.sh /path/to/project
 ```
 
-**队友只需 `git pull`，之后直接 `claude` 启动即可，无需任何额外操作。**
+脚本会做这几件事：
 
-脚本做了什么：
-1. 将 AX 源码嵌入项目 `.ax/` 目录（去掉 git 历史）
-2. 在 `.claude/skills/` 建立相对路径软链接
-3. 在项目级 `.claude/settings.json` 追加 SessionStart hook（不修改已有 hooks）
+1. 将 AX payload 嵌入目标项目的 `.ax/`
+2. 创建 `docs/ai-context/` 和 `.agents/skills/`
+3. 为 Claude Code 写入 SessionStart hook
+4. 将 `.claude/skills/ax` 指向 `.ax/skills/ax`
+5. 将 `.claude/skills/*` 同步到 `.agents/skills/*`
+6. 创建或补齐 `AGENTS.md` 与 `CLAUDE.md`
 
-所有配置都在项目内部，使用相对路径，任何人 clone 后开箱即用。
+如果项目里已经有 `.claude/settings.json`，AX 在第一次改写前会把原文件备份到 `.git/ax-backups/settings.json`。
 
-## 沉淀机制
-
-### 双层架构：规则文件 + Hook 提醒
-
-AX 采用双层方式确保 agent 遵守沉淀规则：
-
-**第一层：`.ax/RULES.md`（核心规则）**
-- 定义完整的沉淀触发条件、流程、格式规范
-- 通过根 AGENTS.md 的 `@.ax/RULES.md` 引用加载
-- 团队可见可改，通过 git 管理和迭代
-
-**第二层：SessionStart hook（轻量提醒）**
-- 每次会话启动注入一句话："After complex tasks, evaluate whether to sediment knowledge per @.ax/RULES.md"
-- 强化 agent 对沉淀规则的记忆，提高自动沉淀概率
-
-### Prompt 驱动自动沉淀
-
-agent 根据 `.ax/RULES.md` 中的规则自主判断是否需要沉淀：
-
-- 多步骤调试（5+ 次工具调用）并定位到 root cause
-- 发现代码中非显而易见的约定或陷阱
-- 实现了可复用的工作流（部署、排错、集成等）
-- 修复了对团队有参考价值的 tricky bug
-
-agent 沉淀时会：
-1. 判断类型：skill（可复用流程）还是 knowledge（架构/约定/陷阱）
-2. 写入对应路径，每文件 < 200 行
-3. 更新父级 AGENTS.md 的 @ 引用
-4. **请求用户确认后才写入**
-
-### 手动触发 (/ax)
+提交时请把完整入口一起提交：
 
 ```bash
-/ax                                  # 全面分析，推荐沉淀内容
-/ax 刚才排查的内存泄漏流程             # 围绕重点提取
-/ax architecture                     # 仅更新架构文档
-/ax skill debug-memory               # 创建/更新指定技能
+git add .ax .agents .claude AGENTS.md CLAUDE.md docs/ai-context
+git commit -m 'chore: add AX knowledge sedimentation'
 ```
 
-prompt 可以是中文或英文自由描述，AX 围绕重点提取。无 prompt 时全面扫描。
+## 使用方式
 
-### 自修复
+`/ax` 是 AX 自带的沉淀 skill。
 
-agent 使用已有 skill 或读取 AGENTS.md 时，如果发现内容过时、不完整或有误，会**立即更新**，不等人要求。沉淀的知识随项目迭代持续进化。
-
-## 架构
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                     触发入口                              │
-│  ├── .ax/RULES.md       核心规则（@ 引用加载）            │
-│  ├── SessionStart hook  轻量提醒（强化记忆）              │
-│  ├── /ax [prompt]       手动触发                         │
-│  └── CI Pipeline        定时/PR 触发（见下方 CI 章节）    │
-├──────────────────────────────────────────────────────────┤
-│  处理流程                                                │
-│  ├── 收集数据                                            │
-│  │   └── 当前会话上下文 + git 变更                        │
-│  ├── 分析 & 提取                                         │
-│  ├── 预览 → 用户确认                                     │
-│  └── 写入文件 + 更新 @ 引用                               │
-├──────────────────────────────────────────────────────────┤
-│  输出目录（git tracked，团队共享）                         │
-│  ├── docs/ai-context/       架构知识                     │
-│  ├── .agents/skills/        项目技能                     │
-│  └── {module}/AGENTS.md     模块文档                     │
-└──────────────────────────────────────────────────────────┘
+```text
+/ax
+/ax <prompt>
+/ax architecture
+/ax skill <name>
 ```
 
-## 文件结构
+典型用法：
 
-### 项目级（git 同步，团队共享）
+- `/ax`：全量扫描当前任务，推荐值得沉淀的内容
+- `/ax 刚才排查的内存泄漏流程`：围绕特定主题提炼
+- `/ax architecture`：仅更新架构知识
+- `/ax skill debug-build-cache`：创建或更新指定项目技能
 
+## `/ax` 的工作方式
+
+### 1. 只使用当前 agent 对应的历史 adapter
+
+- **Claude Code**：读取当前会话、git 变更、`~/.claude/projects` 下最近会话
+- **Codex**：读取当前会话、git 变更、本次任务读写过的文件
+
+同一次 `/ax` 运行中，不混读另一个 agent 的本地历史。
+
+### 2. 只输出到项目知识路径
+
+- 架构/约定/排障结论 → `docs/ai-context/{topic}.md`
+- 可复用流程 → `.agents/skills/{name}/SKILL.md`
+- 模块上下文 → `{module}/AGENTS.md`
+
+### 3. 永远先预览再写入
+
+`/ax` 应该先展示：
+
+- 目标路径
+- 完整内容预览
+- 为什么值得沉淀
+
+然后等待用户确认。没有确认，不允许落盘。
+
+## Claude Code 与 Codex 的区别
+
+AX 不再试图让不同工具各自维护一份知识副本，而是让它们消费同一份项目知识。
+
+| 工具 | 入口 | 技能读取 |
+|------|------|---------|
+| Claude Code | `CLAUDE.md` + SessionStart hook | `.claude/skills/` 软链接到 `.ax/skills/ax` 和 `.agents/skills/*` |
+| Codex | `AGENTS.md` | `.agents/skills/` |
+
+这意味着：
+
+- 项目技能只写一次：`.agents/skills/`
+- Claude Code 通过 adapter 看到它们
+- Codex 直接读项目知识
+
+## 规则入口
+
+安装后，项目根 `AGENTS.md` 会通过 `@.ax/RULES.md` 引用 AX 规则。
+
+规则文件定义了：
+
+- 什么时候该沉淀
+- 哪些内容不值得沉淀
+- 沉淀到哪种路径
+- `/ax` 的确认与验证约束
+- Claude Code / Codex 两类 adapter 的边界
+
+## 开发与验证
+
+本仓库带了一个最基本的 smoke test，覆盖：
+
+- 安装
+- 重复安装幂等
+- Claude settings 合并
+- `.agents/skills` 到 `.claude/skills` 的同步
+- 卸载
+
+运行：
+
+```bash
+bash tests/install_smoke.sh
 ```
-{project}/
-├── .ax/                            # AX 插件源码（install.sh 嵌入）
-│   ├── RULES.md                    # 沉淀规则（核心）
-│   ├── hooks/                      # hook 脚本
-│   ├── skills/                     # skill 源文件
-│   └── install.sh
-├── .claude/
-│   ├── settings.json               # hooks 配置（相对路径，跨机器可用）
-│   └── skills/
-│       └── ax → ../../.ax/skills/ax
-├── AGENTS.md                       # 主入口（含 @.ax/RULES.md 引用）
-├── CLAUDE.md → AGENTS.md           # 软链接兼容 Claude
-└── docs/ai-context/                # 知识输出目录
-```
-
-## 输出规范
-
-### 文件约束
-
-- 每个 md 文件不超过 200 行
-- 使用 @ 引用关联深度文档
-- 遵循 AGENTS.md 分级目录结构
-
-### 输出类型与路径
-
-| 类型 | 输出路径 | 示例 |
-|------|---------|------|
-| 架构知识 | `docs/ai-context/{topic}.md` | `docs/ai-context/cache-strategy.md` |
-| 项目技能 | `.agents/skills/{name}/SKILL.md` | `.agents/skills/debug-diff/SKILL.md` |
-| 模块文档 | `{module}/AGENTS.md` 追加/更新 | `src/AGENTS.md` |
-
-### 写入后自动更新引用
-
-写入新文件后，自动在最近的父级 AGENTS.md 中添加 @ 引用。例如：
-
-```markdown
-## Deep Dive Docs
-- @docs/ai-context/cache-strategy.md — 缓存策略设计  ← 新增
-```
-
-## 兼容性
-
-### 多工具兼容
-
-| 工具 | 指令文件 | 技能目录 | 兼容方式 |
-|------|---------|---------|---------| 
-| Claude Code | CLAUDE.md | .claude/skills/ | 软链接 → .agents/skills |
-| Codex | AGENTS.md | .agents/skills/ | 原生 |
-| Cursor | .cursorrules | — | @ 引用 AGENTS.md |
-
-## CI 集成：文档过时检测
-
-文档过时检测适合放在 CI 流程中，而非本地 hooks，原因：
-- 不干扰本地开发体验
-- 覆盖所有团队成员的变更
-- 结果可追溯，与 PR 流程结合
-
-### 设计方案
-
-#### 触发时机
-
-在 PR 合并到主分支后，或定时（如每日/每周）运行。
-
-#### 检测逻辑
-
-```yaml
-# .github/workflows/ax-stale-check.yml
-name: AX Stale Docs Check
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'lib/**'
-  schedule:
-    - cron: '0 9 * * 1'  # 每周一早 9 点
-
-jobs:
-  check-stale:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect stale docs
-        run: |
-          # 找出所有 AGENTS.md 和 docs/ai-context/*.md
-          # 对每个文档，提取其中引用的源文件路径
-          # 比对：源文件最近修改时间 vs 文档最近修改时间
-          # 输出过时的文档列表
-
-          stale_docs=""
-          for doc in $(find . -name "AGENTS.md" -o -path "*/docs/ai-context/*.md"); do
-            # 提取文档中 @ 引用的文件路径和代码块中的文件路径
-            refs=$(grep -oP '@[\w/.,-]+\.\w+' "$doc" 2>/dev/null || true)
-            doc_time=$(git log -1 --format=%ct -- "$doc" 2>/dev/null || echo 0)
-
-            for ref in $refs; do
-              ref_path="${ref#@}"
-              if [ -f "$ref_path" ]; then
-                ref_time=$(git log -1 --format=%ct -- "$ref_path" 2>/dev/null || echo 0)
-                if [ "$ref_time" -gt "$doc_time" ]; then
-                  stale_docs+="- $doc (referenced $ref_path changed)\n"
-                  break
-                fi
-              fi
-            done
-          done
-
-          if [ -n "$stale_docs" ]; then
-            echo "::warning::Stale docs detected"
-            printf "$stale_docs"
-            # 可选：创建 issue 或发通知
-          fi
-
-      - name: Create issue if stale
-        if: failure() || steps.check-stale.outputs.stale_docs != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // 自动创建 issue 提醒团队更新过时文档
-            // 或在 Slack/飞书 发通知
-```
-
-#### 进阶：CI 中自动更新
-
-```yaml
-# 使用 claude CLI 在 CI 中自动更新过时文档并提 PR
-- name: Auto-update stale docs
-  run: |
-    claude -p "/ax update stale docs based on recent code changes"
-  env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-这样形成完整闭环：
-```
-开发者写代码 → CI 检测文档过时 → 自动/手动更新 → PR review → 合并
-```
-
-## 命令清单
-
-| 命令 | 功能 |
-|------|------|
-| `/ax` | 全面分析，推荐沉淀内容 |
-| `/ax {prompt}` | 围绕重点提取（支持中英文） |
-| `/ax architecture` | 仅更新架构文档 |
-| `/ax skill {name}` | 创建/更新指定技能 |

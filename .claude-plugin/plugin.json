@@ -1,9 +1,0 @@
-{
-  "name": "ax",
-  "description": "Project knowledge sedimentation plugin — automatically extracts valuable knowledge from AI coding sessions into structured Markdown and Skill files, shared via git.",
-  "version": "0.1.0",
-  "author": {
-    "name": "BestAgent"
-  },
-  "keywords": ["knowledge", "documentation", "skills", "sedimentation"]
-}

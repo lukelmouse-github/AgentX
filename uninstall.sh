@@ -24,57 +24,23 @@ fi
 
 echo "[ax] Uninstalling AX from: ${PROJECT_ROOT}"
 
-# ── 1. Remove .claude/skills/ symlinks pointing to .ax/ ──────────────
+# ── 1. Remove .claude/skills/ symlinks pointing to AX adapters ───────
 SKILLS_DIR="${PROJECT_ROOT}/.claude/skills"
 if [ -d "$SKILLS_DIR" ]; then
-    for link in "$SKILLS_DIR"/*/; do
-        [ -L "${link%/}" ] || continue
-        target="$(readlink "${link%/}")"
-        if echo "$target" | grep -q '\.ax/skills'; then
-            rm "${link%/}"
-            echo "[ax]   removed skill symlink: $(basename "${link%/}")"
+    for link in "$SKILLS_DIR"/*; do
+        [ -L "$link" ] || continue
+        target="$(readlink "$link")"
+        if echo "$target" | grep -Eq '^\.\./\.\./\.ax/skills/|^\.\./\.\./\.agents/skills/'; then
+            rm "$link"
+            echo "[ax]   removed skill symlink: $(basename "$link")"
         fi
     done
 fi
 
 # ── 2. Remove AX hook from .claude/settings.json ─────────────────────
 SETTINGS="${PROJECT_ROOT}/.claude/settings.json"
-if [ -f "$SETTINGS" ]; then
-    python3 - "$SETTINGS" << 'PYEOF'
-import json, re, sys
-
-settings_path = sys.argv[1]
-
-with open(settings_path) as f:
-    content = f.read()
-
-content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-settings = json.loads(content)
-
-hooks = settings.get("hooks", {})
-start_list = hooks.get("SessionStart", [])
-
-original_len = len(start_list)
-start_list = [
-    entry for entry in start_list
-    if not any(".ax/hooks" in h.get("command", "") for h in entry.get("hooks", []))
-]
-
-if len(start_list) < original_len:
-    if start_list:
-        hooks["SessionStart"] = start_list
-    else:
-        hooks.pop("SessionStart", None)
-    if not hooks:
-        settings.pop("hooks", None)
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
-        f.write("\n")
-    print("[ax]   removed SessionStart hook")
-else:
-    print("[ax]   skip settings.json (no AX hook found)")
-PYEOF
+if [ -f "$SETTINGS" ] && [ -f "${AX_DIR}/scripts/manage_claude_settings.py" ]; then
+    python3 "${AX_DIR}/scripts/manage_claude_settings.py" remove "$SETTINGS" "bash .ax/hooks/session-start"
 fi
 
 # ── 3. Remove .ax/ directory ─────────────────────────────────────────
@@ -97,6 +63,6 @@ echo "[ax] AX has been removed."
 echo "[ax] Please manually review:"
 echo "  - AGENTS.md — remove the '知识沉淀' section and @.ax/RULES.md references"
 echo "  - CLAUDE.md — remove AX-related content if it was a real file"
-echo "  - docs/ai-context/ — keep or remove as you see fit"
+echo "  - .agents/skills/ and docs/ai-context/ — keep or remove as you see fit"
 echo ""
 echo "  git add -A && git commit -m 'chore: remove AX plugin'"

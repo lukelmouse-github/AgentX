@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# AX — One-line project installer
+# AX — Project installer
 #
-# Installs AX into a project so that every teammate gets it after git pull.
-# Everything lives inside the project repo — no global config needed.
+# Embeds AX into a git repository so knowledge lives in the project and is
+# shared through normal git workflows.
 #
 # Usage:
-#   # Run from inside the target project
-#   curl -fsSL https://raw.githubusercontent.com/anthropics/ax/main/install.sh | bash
-#
-#   # Or specify a project path
-#   curl -fsSL https://raw.githubusercontent.com/anthropics/ax/main/install.sh | bash -s -- /path/to/project
+#   curl -fsSL https://raw.githubusercontent.com/lukelmouse-github/AgentX/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/lukelmouse-github/AgentX/main/install.sh | bash -s -- /path/to/project
+#   AX_SOURCE_DIR=/path/to/local/ax bash install.sh /path/to/project
 set -euo pipefail
 
 PROJECT_ROOT="${1:-$(pwd)}"
@@ -26,94 +24,84 @@ fi
 echo "[ax] Installing AX into: ${PROJECT_ROOT}"
 
 AX_DIR="${PROJECT_ROOT}/.ax"
-
-# ── 1. Clone / update AX into .ax/ ────────────────────────────────────
-if [ -d "${AX_DIR}/.git" ]; then
-    echo "[ax] Updating .ax/ ..."
-    git -C "$AX_DIR" pull --ff-only --quiet 2>/dev/null || true
-else
-    if [ -d "$AX_DIR" ]; then
-        BACKUP="${AX_DIR}.bak.$(date +%Y%m%d%H%M%S)"
-        cp -r "$AX_DIR" "$BACKUP"
-        echo "[ax] Backed up existing .ax/ to $(basename "$BACKUP")/"
-        rm -rf "$AX_DIR"
-    fi
-    echo "[ax] Cloning AX into .ax/ ..."
-    git clone --quiet --depth 1 https://github.com/anthropics/ax.git "$AX_DIR"
-    rm -rf "${AX_DIR}/.git"
-    echo "[ax] Embedded AX source (git history removed)"
-fi
-
-# ── 2. Set up .claude/skills/ symlinks ────────────────────────────────
-SKILLS_DIR="${PROJECT_ROOT}/.claude/skills"
-mkdir -p "$SKILLS_DIR"
-
-for skill_dir in "${AX_DIR}/skills"/*/; do
-    [ -d "$skill_dir" ] || continue
-    skill_name="$(basename "$skill_dir")"
-    target="${SKILLS_DIR}/${skill_name}"
-    rel_path="../../.ax/skills/${skill_name}"
-    if [ -L "$target" ]; then
-        rm "$target"
-    elif [ -e "$target" ]; then
-        echo "[ax]   skip skill: ${skill_name} (exists, not a symlink)"
-        echo "[ax]   ⚠ /${skill_name} will use your existing skill, not AX's. To use AX's, rename or remove ${target}/"
-        continue
-    fi
-    ln -s "$rel_path" "$target"
-    echo "[ax]   linked skill: ${skill_name}"
-done
-
-# ── 3. Add SessionStart hook to .claude/settings.json ─────────────────
-# Only appends AX hook — never modifies or removes existing hooks.
-SETTINGS="${PROJECT_ROOT}/.claude/settings.json"
-[ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-
-python3 - "$SETTINGS" << 'PYEOF'
-import json, re, sys
-
-settings_path = sys.argv[1]
-
-with open(settings_path) as f:
-    content = f.read()
-
-# Strip // and /* */ comments for JSON5 compatibility
-content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-settings = json.loads(content)
-
-hooks = settings.setdefault("hooks", {})
-
-start_cmd = "bash .ax/hooks/session-start"
-
-# Check if AX hook already exists
-start_list = hooks.setdefault("SessionStart", [])
-already_exists = any(
-    ".ax/hooks" in h.get("command", "")
-    for entry in start_list
-    for h in entry.get("hooks", [])
+DEFAULT_AX_REPO_URL="https://github.com/lukelmouse-github/AgentX.git"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ax-install.XXXXXX")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STAGED_SOURCE="${WORK_DIR}/source"
+PAYLOAD_DIR="${WORK_DIR}/payload"
+SOURCE_DIR="${AX_SOURCE_DIR:-}"
+PAYLOAD_ITEMS=(
+    "RULES.md"
+    "README.md"
+    "hooks"
+    "skills"
+    "scripts"
+    "install.sh"
+    "uninstall.sh"
 )
 
-if already_exists:
-    print("[ax]   skip hook: SessionStart (already configured)")
-else:
-    start_list.append({"matcher": "", "hooks": [{"type": "command", "command": start_cmd}]})
-    print("[ax]   added hook: SessionStart")
+cleanup() {
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
 
-with open(settings_path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
-PYEOF
-
-# ── 4. Create AGENTS.md + CLAUDE.md if missing ───────────────────────
-# Pre-create docs/ai-context/ so agent can write to it immediately
-DOCS_DIR="${PROJECT_ROOT}/docs/ai-context"
-if [ ! -d "$DOCS_DIR" ]; then
-    mkdir -p "$DOCS_DIR"
-    touch "${DOCS_DIR}/.gitkeep"
-    echo "[ax]   created docs/ai-context/"
+if [ -z "$SOURCE_DIR" ] && [ -f "${SCRIPT_DIR}/RULES.md" ] && [ -d "${SCRIPT_DIR}/skills" ]; then
+    SOURCE_DIR="$SCRIPT_DIR"
 fi
 
+if [ -n "$SOURCE_DIR" ]; then
+    SOURCE_DIR="$(cd "$SOURCE_DIR" 2>/dev/null && pwd)" || {
+        echo "[ax] Error: AX_SOURCE_DIR not found: ${AX_SOURCE_DIR}"
+        exit 1
+    }
+    echo "[ax] Using AX source from: ${SOURCE_DIR}"
+else
+    AX_REPO_URL="${AX_REPO_URL:-$DEFAULT_AX_REPO_URL}"
+    SOURCE_DIR="${STAGED_SOURCE}"
+    echo "[ax] Fetching AX source from: ${AX_REPO_URL}"
+    git clone --quiet --depth 1 "$AX_REPO_URL" "$SOURCE_DIR"
+fi
+
+mkdir -p "$PAYLOAD_DIR"
+for item in "${PAYLOAD_ITEMS[@]}"; do
+    if [ ! -e "${SOURCE_DIR}/${item}" ]; then
+        echo "[ax] Error: AX source is missing ${item}"
+        exit 1
+    fi
+    cp -R "${SOURCE_DIR}/${item}" "${PAYLOAD_DIR}/${item}"
+done
+
+if [ -d "$AX_DIR" ]; then
+    BACKUP="${AX_DIR}.bak.$(date +%Y%m%d%H%M%S)"
+    cp -R "$AX_DIR" "$BACKUP"
+    echo "[ax] Backed up existing .ax/ to $(basename "$BACKUP")/"
+    rm -rf "$AX_DIR"
+fi
+
+mkdir -p "$AX_DIR"
+for item in "${PAYLOAD_ITEMS[@]}"; do
+    cp -R "${PAYLOAD_DIR}/${item}" "${AX_DIR}/${item}"
+done
+chmod +x "${AX_DIR}/install.sh" "${AX_DIR}/uninstall.sh" "${AX_DIR}/hooks/session-start"
+find "${AX_DIR}/scripts" -type f -name "*.py" -exec chmod +x {} +
+echo "[ax] Embedded AX payload into .ax/"
+
+# ── 2. Create canonical project knowledge directories ─────────────────
+mkdir -p "${PROJECT_ROOT}/.agents/skills"
+touch "${PROJECT_ROOT}/.agents/skills/.gitkeep"
+
+DOCS_DIR="${PROJECT_ROOT}/docs/ai-context"
+mkdir -p "$DOCS_DIR"
+touch "${DOCS_DIR}/.gitkeep"
+
+# ── 3. Add Claude Code adapters (hook + skill symlinks) ──────────────
+mkdir -p "${PROJECT_ROOT}/.claude"
+SETTINGS="${PROJECT_ROOT}/.claude/settings.json"
+[ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+python3 "${AX_DIR}/scripts/manage_claude_settings.py" add "$SETTINGS" "bash .ax/hooks/session-start"
+python3 "${AX_DIR}/scripts/sync_claude_skills.py" "$PROJECT_ROOT"
+
+# ── 4. Create AGENTS.md + CLAUDE.md if missing ───────────────────────
 AGENTS_MD="${PROJECT_ROOT}/AGENTS.md"
 if [ ! -f "$AGENTS_MD" ]; then
     PROJECT_NAME="$(basename "$PROJECT_ROOT")"
@@ -132,8 +120,8 @@ if [ ! -f "$AGENTS_MD" ]; then
 
 ### 知识沉淀
 
-完成复杂任务后，主动判断是否沉淀：skill → .agents/skills/，知识 → docs/ai-context/，模块 → AGENTS.md。
-发现已有文档过时时立即更新。详见 @.ax/RULES.md。
+项目知识只写入 .agents/skills/、docs/ai-context/ 和模块 AGENTS.md。
+所有沉淀与知识修订都必须通过 /ax 流程完成，详见 @.ax/RULES.md。
 
 ## Quick Start
 
@@ -150,46 +138,39 @@ TODO: high-level architecture summary.
 <!-- AX will auto-append @ references here -->
 MDEOF
     echo "[ax]   created AGENTS.md"
-else
-    # Ensure existing AGENTS.md has @.ax/RULES.md reference
-    if ! grep -q '@\.ax/RULES\.md' "$AGENTS_MD" 2>/dev/null; then
-        cat >> "$AGENTS_MD" << 'APPENDEOF'
+elif ! grep -q '@\.ax/RULES\.md' "$AGENTS_MD" 2>/dev/null; then
+    cat >> "$AGENTS_MD" << 'APPENDEOF'
 
 ### 知识沉淀
 
-完成复杂任务后，主动判断是否沉淀：skill → .agents/skills/，知识 → docs/ai-context/，模块 → AGENTS.md。
-发现已有文档过时时立即更新。详见 @.ax/RULES.md。
+项目知识只写入 .agents/skills/、docs/ai-context/ 和模块 AGENTS.md。
+所有沉淀与知识修订都必须通过 /ax 流程完成，详见 @.ax/RULES.md。
 APPENDEOF
-        echo "[ax]   appended sedimentation rules to existing AGENTS.md"
-    else
-        echo "[ax]   skip AGENTS.md (already has @.ax/RULES.md reference)"
-    fi
+    echo "[ax]   appended sedimentation rules to existing AGENTS.md"
+else
+    echo "[ax]   skip AGENTS.md (already has @.ax/RULES.md reference)"
 fi
 
 CLAUDE_MD="${PROJECT_ROOT}/CLAUDE.md"
 if [ ! -f "$CLAUDE_MD" ] && [ ! -L "$CLAUDE_MD" ]; then
     ln -s AGENTS.md "$CLAUDE_MD"
     echo "[ax]   created CLAUDE.md → AGENTS.md symlink"
-elif [ -f "$CLAUDE_MD" ] && [ ! -L "$CLAUDE_MD" ]; then
-    # CLAUDE.md is a real file (not symlink) — append sedimentation rules if missing
-    if ! grep -q '@\.ax/RULES\.md' "$CLAUDE_MD" 2>/dev/null; then
-        cat >> "$CLAUDE_MD" << 'APPENDEOF'
+elif [ -f "$CLAUDE_MD" ] && [ ! -L "$CLAUDE_MD" ] && ! grep -q '@\.ax/RULES\.md' "$CLAUDE_MD" 2>/dev/null; then
+    cat >> "$CLAUDE_MD" << 'APPENDEOF'
 
 ### 知识沉淀
 
-完成复杂任务后，主动判断是否沉淀：skill → .agents/skills/，知识 → docs/ai-context/，模块 → AGENTS.md。
-发现已有文档过时时立即更新。详见 @.ax/RULES.md。
+项目知识只写入 .agents/skills/、docs/ai-context/ 和模块 AGENTS.md。
+所有沉淀与知识修订都必须通过 /ax 流程完成，详见 @.ax/RULES.md。
 APPENDEOF
-        echo "[ax]   appended sedimentation rules to existing CLAUDE.md"
-    else
-        echo "[ax]   skip CLAUDE.md (already has @.ax/RULES.md reference)"
-    fi
+    echo "[ax]   appended sedimentation rules to existing CLAUDE.md"
+else
+    echo "[ax]   skip CLAUDE.md (already has @.ax/RULES.md reference or is managed separately)"
 fi
 
-# ── Done ──────────────────────────────────────────────────────────────
 echo ""
 echo "[ax] Done! AX is installed in this project."
-echo "[ax] Commit the changes and your teammates get AX automatically:"
+echo "[ax] Commit the changes so teammates get the same knowledge stack:"
 echo ""
-echo "  git add .ax .claude AGENTS.md CLAUDE.md"
-echo "  git commit -m 'chore: add AX knowledge sedimentation plugin'"
+echo "  git add .ax .agents .claude AGENTS.md CLAUDE.md docs/ai-context"
+echo "  git commit -m 'chore: add AX knowledge sedimentation'"
