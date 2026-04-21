@@ -26,7 +26,11 @@ echo "[ax] Installing AX into: ${PROJECT_ROOT}"
 AX_DIR="${PROJECT_ROOT}/.ax"
 DEFAULT_AX_REPO_URL="https://github.com/lukelmouse-github/AgentX.git"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ax-install.XXXXXX")"
-SCRIPT_DIR="${BASH_SOURCE[0]:+$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+if [ "${#BASH_SOURCE[@]}" -gt 0 ] && [ -n "${BASH_SOURCE[0]:-}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    SCRIPT_DIR=""
+fi
 STAGED_SOURCE="${WORK_DIR}/source"
 PAYLOAD_DIR="${WORK_DIR}/payload"
 SOURCE_DIR="${AX_SOURCE_DIR:-}"
