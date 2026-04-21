@@ -20,33 +20,113 @@ Extract valuable knowledge from AI coding sessions and save it as structured doc
 
 Follow these steps strictly in order:
 
-### Step 1: Check Project Config
+### Step 1: Collect Data
 
-Check if `.ax.json` exists in the project root. If it contains `"enabled": false`, tell the user AX is disabled for this project and stop.
+**1a. Current session context**
 
-### Step 2: Detect Environment
+Gather from the current conversation: files read/written, decisions made, bugs found, solutions applied.
 
-Check claude-mem availability:
+**1b. Recent git changes**
+
 ```bash
-curl -s --max-time 2 http://localhost:37777/api/health
+git log --oneline -10
+git diff --stat
 ```
 
-- **Available** → enhanced mode: can query historical observations
-- **Unavailable** → basic mode: analyze current session context only
+**1c. Recent local session history (last 7 days, two-level scan)**
 
-### Step 3: Collect Data
+Read recent Claude Code session logs from the local machine — this data is NOT committed to git.
 
-**Always available:**
-- Current session context (conversation, files read/written, decisions made)
-- Recent git changes: `git log --oneline -10` and `git diff --stat`
+**Level 1: Quick scan — one-line summary per session**
 
-**Enhanced mode (claude-mem available):**
-- Query relevant observations: `curl http://localhost:37777/api/observations?search=<topic>`
-- Use semantic search to find related historical knowledge
+```bash
+# Find the project session directory
+PROJECT_DIR=$(pwd)
+SESSION_BASE="${HOME}/.claude/projects"
+PROJECT_HASH=$(echo -n "${PROJECT_DIR}" | sed 's|/|-|g' | sed 's|^-||')
+SESSION_DIR="${SESSION_BASE}/${PROJECT_HASH}"
 
-**Note on claude-mem interaction:** AX is read-only with respect to claude-mem. However, claude-mem's hooks passively observe all session activity including AX execution, which may create meta-observations. This is a known trade-off; MVP does not address it since the noise is minimal and semantically low-ranked.
+if [ ! -d "$SESSION_DIR" ]; then
+  SESSION_DIR=$(ls -d ${SESSION_BASE}/*${PROJECT_DIR##*/}* 2>/dev/null | head -1)
+fi
 
-### Step 4: Analyze & Extract
+# List .jsonl files modified in last 7 days, newest first, max 10
+if [ -d "$SESSION_DIR" ]; then
+  find "$SESSION_DIR" -name "*.jsonl" -mtime -7 -type f | xargs ls -t 2>/dev/null | head -10
+fi
+```
+
+For each session file, extract only the first 10 user messages to understand what the session was about:
+
+```bash
+python3 -c "
+import json, sys
+count = 0
+with open(sys.argv[1]) as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        d = json.loads(line)
+        if d.get('type') != 'user': continue
+        msg = d.get('message', {})
+        content = msg.get('content', [])
+        if isinstance(content, str):
+            texts = [content]
+        elif isinstance(content, list):
+            texts = [c.get('text','') for c in content if isinstance(c,dict) and c.get('type')=='text']
+        else:
+            continue
+        for text in texts:
+            text = text.strip()
+            if text:
+                print(text[:200])
+                count += 1
+                if count >= 10: sys.exit()
+" <session_file>
+```
+
+Based on the first 10 user messages, write a one-line summary for each session (e.g., "调试 OOM 问题并定位到 GatewayClient 内存泄漏"). **Decide which sessions are worth deeper extraction** — skip sessions that are simple Q&A, trivial edits, or unrelated to the current /ax prompt.
+
+**Level 2: Deep extract — full text from selected sessions only**
+
+For each session selected in Level 1 (typically 1-3), extract all user and assistant text:
+
+```bash
+python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        d = json.loads(line)
+        t = d.get('type')
+        if t not in ('user', 'assistant'): continue
+        msg = d.get('message', {})
+        content = msg.get('content', [])
+        if isinstance(content, str):
+            texts = [content]
+        elif isinstance(content, list):
+            texts = [c.get('text','') for c in content if isinstance(c,dict) and c.get('type')=='text']
+        else:
+            continue
+        for text in texts:
+            text = text.strip()
+            if not text: continue
+            if len(text) > 500:
+                text = text[:500] + '...[truncated]'
+            print(f'[{t}] {text}')
+" <session_file>
+```
+
+This extracts only user questions and assistant conclusions — skipping tool calls, tool results, file snapshots, and other noise. From the extracted text, identify:
+- Key decisions and the reasoning behind them
+- Root causes found during debugging
+- Solutions applied and why
+- Non-obvious gotchas or constraints discovered
+
+Skip sessions that produce fewer than 10 meaningful messages (trivially short).
+
+### Step 2: Analyze & Extract
 
 Based on collected data, identify knowledge worth saving:
 
@@ -64,7 +144,7 @@ For each piece of knowledge:
 - Draft the content
 - Keep each file under 200 lines
 
-### Step 5: Preview & Confirm
+### Step 3: Preview & Confirm
 
 For each file to be written, show the user:
 
@@ -77,38 +157,58 @@ Ask the user to confirm before writing. Use AskUserQuestion:
 
 **Do NOT write any file without explicit user confirmation.**
 
-### Step 6: Write Files
+### Step 4: Validate (run bash commands, not self-check)
+
+For each file to be written, run these validation commands BEFORE writing. Do NOT skip any step.
+
+**4a. Line count gate (hard block)**
+
+```bash
+echo "<draft content>" | wc -l
+```
+
+If output > 200: **STOP. Do not write.** Split into multiple files with @ references, then re-validate each piece.
+
+**4b. Duplication scan (bash search + human judgment)**
+
+```bash
+grep -rl "<2-3 core keywords from draft>" docs/ai-context/ .agents/skills/ 2>/dev/null || echo "no duplicates"
+```
+
+If files are found: read them. If content overlaps, update the existing file instead of creating a new one.
+
+**4c. @ reference validity (hard block)**
+
+```bash
+# Extract all @ references from draft, verify each path exists
+for ref in $(echo "<draft content>" | grep -oP '@[\w/.,-]+\.\w+' | sed 's/^@//'); do
+  test -f "$ref" || echo "BROKEN: $ref"
+done
+```
+
+If any BROKEN: fix the reference or ensure the target file will be created in this same operation. Do not write files with broken @ references.
+
+**4d. Actionable content (prompt-level, cannot be automated)**
+
+Review the draft: does it contain specific commands, file paths, code patterns, or step-by-step procedures? Vague advice fails this check.
+
+- Bad: "be careful with caching"
+- Good: "set `max-old-space-size=4096` when processing datasets > 1GB"
+
+### Step 5: Write Files
 
 For confirmed files:
 
 1. Write the file content
-2. Append `ax-meta` comment at the end of each generated doc:
-```markdown
-<!-- ax-meta
-sources:
-  - path/to/relevant/source1.kt
-  - path/to/relevant/source2.ts
-generated: YYYY-MM-DD
--->
-```
-3. Update the nearest parent `AGENTS.md` with an `@` reference to the new file:
+2. Update the nearest parent `AGENTS.md` with an `@` reference to the new file:
 ```markdown
 ## Deep Dive Docs
 - @docs/ai-context/new-topic.md — Brief description
 ```
-4. If `AGENTS.md` doesn't exist at the project root, create one with basic structure
-5. If `CLAUDE.md` doesn't exist, create it as content pointing to AGENTS.md: `See AGENTS.md for project instructions.`
+3. If `AGENTS.md` doesn't exist at the project root, create one with the template (including `@.ax/RULES.md` reference)
+4. If `CLAUDE.md` doesn't exist, create it as symlink or pointer to AGENTS.md
 
-### Step 7: Update Timestamp
-
-Record the current timestamp for incremental detection:
-```bash
-project_hash=$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-16)
-mkdir -p "${HOME}/.claude-ax/${project_hash}"
-date +%s > "${HOME}/.claude-ax/${project_hash}/last_ax_ts"
-```
-
-### Step 8: Summary
+### Step 6: Summary
 
 Report what was saved:
 - Files written/updated with paths
@@ -137,8 +237,15 @@ Report what was saved:
 ```markdown
 # {Project Name}
 
-## Overview
-Brief project description.
+## Instructions
+
+### AGENTS.md 读取规则
+修改或设计涉及某目录的代码前，必须先读该目录及父目录的 AGENTS.md。
+
+### 知识沉淀
+
+完成复杂任务后，主动判断是否沉淀：skill → .agents/skills/，知识 → docs/ai-context/，模块 → AGENTS.md。
+发现已有文档过时时立即更新。详见 @.ax/RULES.md。
 
 ## Quick Start
 Key commands and setup.
@@ -151,9 +258,6 @@ High-level architecture summary.
 
 ## Deep Dive Docs
 - @docs/ai-context/{topic}.md — Topic description
-
-## Skills
-- @.agents/skills/{name}/SKILL.md — Skill description
 ```
 
 ### Skill Template
@@ -182,5 +286,3 @@ Concrete examples.
 - **Human in the loop** — every write requires confirmation
 - **Under 200 lines** — split large docs, use @ references
 - **Git-native** — no auto-commit, user controls versioning
-- **Incremental** — track what was already processed via timestamps
-- **Graceful degradation** — works without claude-mem, better with it
