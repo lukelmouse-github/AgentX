@@ -1,0 +1,23 @@
+scripts/ax-review.sh
+  bb2970a21579c76a 1-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "6cbf93664ef03c529ad909c44456252b9cb05db7",
+  "prompts": {
+    "bb2970a21579c76a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ea68038f-bbba-46a1-86c8-c8539eb67b16",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "luke",
+      "messages": [],
+      "total_additions": 41,
+      "total_deletions": 0,
+      "accepted_lines": 861,
+      "overriden_lines": 0
+    }
+  }
+}
