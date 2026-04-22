@@ -2,11 +2,38 @@
 
 AX 是一个 Claude Code plugin。它把 agent 在编码、排障、设计过程里产生的可复用经验，沉淀到项目仓库里，再通过 git 共享给团队和其他 coding agent。
 
+## 为什么需要 AX
+
+Coding agent 每次对话都在产生有价值的知识——架构分析、排障结论、设计决策——但这些知识在对话结束后就消失了。没有 AX 时，每次 agent 接触同一个模块都要重新读文件、重新推理，重复消耗 token。团队里一个人踩过的坑，其他人还会再踩一遍。
+
+AX 补上了从"产生知识"到"团队共享"的闭环：自动检测哪些对话值得沉淀，生成预览让人确认，写入 git 可追踪的通用路径，所有 agent 和所有团队成员都能消费。
+
+### 知识管理能力对比
+
+| 能力 | AX | Claude Code | Codex | Hermes Agent | OpenClaw |
+|------|:---:|:---:|:---:|:---:|:---:|
+| **自动检测值得沉淀的对话** | ✅ | — | — | ✅ | — |
+| **知识写入 git 共享路径** | ✅ | — | — | — | — |
+| **团队成员可消费** | ✅ | — | — | — | ✅ |
+| **跨 agent 通用格式** | ✅ | — | ✅ | — | ✅ |
+| **设计/探索类对话也能触发** | ✅ | — | — | — | — |
+| **项目技能沉淀（git tracked）** | ✅ | — | — | — | — |
+| **个人记忆** | — | ✅ | — | ✅ | ✅ |
+| **agent 自我进化（私有 skill）** | — | — | — | ✅ | ✅ |
+| **跨会话历史搜索** | — | — | — | ✅ | ✅ |
+| **作为插件无侵入集成** | ✅ | — | — | — | — |
+
+**关键区别：**
+
+- **Hermes Agent / OpenClaw** 的知识闭环是"agent 自己学、自己用"——skill 和 memory 存在 agent 私有目录，换个人、换个 agent 就失效
+- **Claude Code / Codex** 有一定的记忆能力，但不会主动检测和提示沉淀
+- **AX** 的定位是**项目知识资产管理**：知识属于项目而非个人，通过 git 共享给整个团队和所有 agent，写入由后台 LLM 自动完成
+
 核心原则：
 
 - 知识是项目资产，不是某个 agent 的私有记忆
 - 项目知识只写入 `AGENTS.md`、`docs/ai-context/`、`.agents/skills/`
-- 沉淀自动触发分析和预览，写入需要人工确认
+- 沉淀在 session 中自动触发，后台 LLM 判断并直接写入
 - 沉淀产物使用通用格式，任何 coding agent 都能消费
 
 ## 安装
@@ -15,8 +42,11 @@ AX 是一个 Claude Code plugin。它把 agent 在编码、排障、设计过程
 # 1. 添加 marketplace
 /plugin marketplace add lukelmouse-github/AgentX
 
-# 2. 安装插件
+# 2. 安装插件（选择 project scope 以便团队共享）
 /plugin install ax@lukelmouse-github
+
+# 3. 开启自动更新（可选，推荐）
+#    /plugin → Marketplaces → 选择 lukelmouse-github → Enable auto-update
 ```
 
 本地开发测试：
@@ -25,7 +55,7 @@ AX 是一个 Claude Code plugin。它把 agent 在编码、排障、设计过程
 claude --plugin-dir /path/to/ax
 ```
 
-安装后 AX 提供两个 skill 和四个自动 hook，无需改动项目文件。
+安装后 AX 提供一个 skill（/ax:ax）和一个自动 hook（PostToolUse），无需改动项目文件。
 
 ## 提供的能力
 
@@ -34,22 +64,18 @@ claude --plugin-dir /path/to/ax
 | Skill | 调用方式 | 用途 |
 |-------|---------|------|
 | **ax** | `/ax:ax` 或 `/ax:ax <prompt>` | 从当前对话中提取知识，沉淀到项目知识库 |
-| **init** | `/ax:init` | 为项目生成自定义的沉淀评估配置 `.ax/profile.yaml` |
 
 ### Hooks
 
 | 事件 | 行为 |
 |------|------|
-| **SessionStart** | 注入沉淀提醒到 agent 上下文，清理旧信号文件 |
-| **PostToolUse** | 每次工具调用后异步记录信号到 `/tmp/ax-signals-{session_id}.jsonl` |
-| **Stop** | 读取积累的信号 + 项目 profile，达标时自动执行 `/ax:ax` 分析和预览 |
-| **UserPromptSubmit** | 检测用户拒绝沉淀建议，注入反思提示帮助优化 profile |
+| **PostToolUse** | 异步追踪工具调用，满足触发条件后 debounce 1 分钟，后台启动 `claude -p` 读取 transcript 判断并写入知识 |
 
 ## 使用方式
 
 ### 初次设置
 
-安装 plugin 后，在项目里运行 `/ax:init`。它会分析项目结构，生成 `.ax/profile.yaml` 配置，定义什么样的工作值得触发沉淀。
+无需配置。安装后 AX 自动在 session 中追踪工具调用模式，检测到深度工作后由 LLM 判断是否沉淀。
 
 ### 日常使用
 
@@ -60,9 +86,14 @@ claude --plugin-dir /path/to/ax
 /ax:ax skill debug-build-cache   # 创建或更新指定项目技能
 ```
 
-### 自动提示
+### 自动沉淀
 
-PostToolUse hook 在每次工具调用后异步积累信号（工具类型、文件路径、命令等）。Stop hook 在对话结束时读取这些信号，结合项目的 `.ax/profile.yaml`（通过 `/ax:init` 生成）评估是否达标。达标后 Claude 会自动执行 `/ax:ax` 分析并生成预览，用户确认后才写入。如果用户拒绝，UserPromptSubmit hook 会在下一轮注入反思提示，帮助识别误触发并优化 profile。没有 profile 时，使用保守的内置默认规则（如 `tool_count >= 50 and write_count >= 5`），确保只有深度工作才触发。运行 `/ax:init` 生成项目定制 profile 后可以大幅降低阈值。
+PostToolUse hook 在每次工具调用后异步追踪 session 状态。满足以下任一条件即触发沉淀检查（OR）：
+
+- 检测到 3 次 brainstorming skill 调用
+- 检测到 3 轮重对话（单轮工具调用 >= 10 次）
+
+触发后 debounce 1 分钟——如果用户仍在密集操作则延后，确保不打断工作。debounce 到期后，后台启动 `claude -p --bare` 读取当前 session 的完整 transcript，由 LLM 判断是否有值得沉淀的知识并直接写入项目。用户可以通过 `git diff` 查看、`git checkout -- <file>` 撤销不需要的内容。
 
 ## 沉淀产物
 
@@ -75,7 +106,6 @@ PostToolUse hook 在每次工具调用后异步积累信号（工具类型、文
 ├── docs/ai-context/        # 架构、约定、排障结论
 ├── .agents/skills/         # 可复用项目技能
 └── .ax/
-    └── profile.yaml        # 项目自定义的沉淀评估配置（/ax:init 生成）
 ```
 
 | 产物 | 路径 | 说明 |
@@ -100,9 +130,10 @@ PostToolUse hook 在每次工具调用后异步积累信号（工具类型、文
 - 可复用流程 → `.agents/skills/{name}/SKILL.md`
 - 模块上下文 → `{module}/AGENTS.md`
 
-### 3. 永远先预览再写入
+### 3. 两种触发方式
 
-Stop hook 达标后自动执行分析和预览。展示目标路径、完整内容预览、为什么值得沉淀，然后等待用户确认。没有确认不落盘。
+- **自动**：PostToolUse hook 检测到深度工作后，后台 `claude -p` 读取 transcript 并直接写入
+- **手动**：用户执行 `/ax:ax`，在当前对话中预览并确认后写入
 
 ## Plugin 目录结构
 
@@ -111,16 +142,12 @@ ax/
 ├── .claude-plugin/
 │   └── plugin.json                    # Plugin manifest
 ├── hooks/
-│   └── hooks.json                     # SessionStart + PostToolUse + UserPromptSubmit + Stop
+│   └── hooks.json                     # PostToolUse only
 ├── skills/
-│   ├── ax/SKILL.md                    # 主沉淀 skill
-│   └── init/SKILL.md                  # Profile 初始化 skill
+│   └── ax/SKILL.md                    # 主沉淀 skill（/ax:ax）
 ├── scripts/
-│   ├── session-start.sh               # SessionStart hook（上下文注入 + 清理）
-│   ├── post-tool-use.sh               # PostToolUse hook（信号积累）
-│   ├── stop-check.sh                  # Stop hook（评估 + 自动触发）
-│   ├── user-prompt-submit.sh          # UserPromptSubmit hook（拒绝检测 + 反思）
-│   └── eval_profile.py                # 核心评估引擎（读 profile + 信号）
+│   ├── post-tool-use.sh               # PostToolUse hook（状态追踪 + 触发检测 + debounce）
+│   └── ax-review.sh                   # 后台 claude -p 审查执行体
 ├── RULES.md                           # 沉淀规则
 └── README.md
 ```
