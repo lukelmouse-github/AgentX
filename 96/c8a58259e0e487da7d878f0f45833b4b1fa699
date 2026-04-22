@@ -1,0 +1,23 @@
+tests/plugin_smoke.sh
+  bb2970a21579c76a 2,27,29-30,34-56,62,65-71,78-81,83-90,101,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "96c8a58259e0e487da7d878f0f45833b4b1fa699",
+  "prompts": {
+    "bb2970a21579c76a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ea68038f-bbba-46a1-86c8-c8539eb67b16",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "luke",
+      "messages": [],
+      "total_additions": 64,
+      "total_deletions": 323,
+      "accepted_lines": 878,
+      "overriden_lines": 0
+    }
+  }
+}
