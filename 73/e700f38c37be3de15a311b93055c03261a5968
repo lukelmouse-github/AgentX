@@ -1,0 +1,28 @@
+scripts/post-tool-use.sh
+  06f2c5926f5ae704 19-28,31-33,55,100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "73e700f38c37be3de15a311b93055c03261a5968",
+  "prompts": {
+    "06f2c5926f5ae704": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9331c860-a4b8-4b58-b7a8-a9095a684daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "luke",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 39,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_cccf52f3d03c50": {
+      "author": "luke"
+    }
+  }
+}
