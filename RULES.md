@@ -2,8 +2,6 @@
 
 ## 核心约束
 
-**所有知识沉淀必须通过 `/ax:ax` 流程完成。** 不允许 agent 自行直接写入 `docs/ai-context/`、`.agents/skills/` 或 `AGENTS.md` 中的沉淀内容。`/ax:ax` 负责预览、验证、确认和落盘。
-
 项目知识的 canonical 路径只有三类：
 
 - `docs/ai-context/`：架构、约定、排障结论
@@ -12,20 +10,18 @@
 
 不要把知识写入任何 agent 专属路径（如 `.claude/`、`.codex/`）。所有沉淀只使用上述通用路径，确保跨 agent 可读。
 
-## 自动沉淀规则
+## 自动沉淀
 
-Stop hook 会在对话结束时自动评估是否达到沉淀条件。达标后 Claude 自动执行 `/ax:ax` 分析和预览，用户确认后写入。
+AX 在 session 进行中自动检测沉淀时机。PostToolUse hook 追踪工具调用，满足以下任一条件即触发（OR）：
 
-触发条件（由 `.ax/profile.yaml` 或内置默认规则决定）：
+- 检测到 3 次 brainstorming skill 调用（深度设计/探索 session）
+- 检测到 3 轮重对话（单轮工具调用 >= 10 次，复杂多步任务）
 
-- 多步骤调试（5+ 次工具调用）并最终定位到 root cause
-- 发现代码中非显而易见的约定、陷阱或架构约束
-- 实现了可复用的工作流（部署、排错、集成、迁移等）
-- 修改了项目关键路径的核心文件
+触发后有 1 分钟 debounce——如果用户仍在密集操作，延后执行，确保不打断工作。
 
-如果项目已配置 `.ax/profile.yaml`（通过 `/ax:init` 生成），Stop hook 按项目策略判断。否则使用默认规则。
+debounce 到期后，后台启动 `claude -p --bare` 读取当前 session 的完整 transcript，由 LLM 判断是否有值得沉淀的项目知识。如果有，直接写入项目。用户可以通过 `git diff` 查看、`git checkout -- <file>` 撤销。
 
-当用户拒绝沉淀预览时，UserPromptSubmit hook 会在下一轮注入反思提示，帮助分析为什么这种信号组合不值得沉淀，以及如何调整 profile 避免类似误触发。
+用户也可以随时手动执行 `/ax:ax` 触发沉淀，不受自动机制限制。
 
 ### 不应沉淀
 
@@ -35,71 +31,22 @@ Stop hook 会在对话结束时自动评估是否达到沉淀条件。达标后 
 - 通用编程知识（语言语法、标准库用法等）
 - 仅与当前 PR/任务相关、不会再遇到的上下文
 
-### 沉淀流程
+### 沉淀路径
 
-1. **判断类型**：
-   - **Skill**（可复用流程）→ `.agents/skills/{name}/SKILL.md`
-   - **架构/设计知识** → `docs/ai-context/{topic}.md`
-   - **模块上下文** → `{module}/AGENTS.md`（追加）
+1. **Skill**（可复用流程）→ `.agents/skills/{name}/SKILL.md`
+2. **架构/设计知识** → `docs/ai-context/{topic}.md`
+3. **模块上下文** → `{module}/AGENTS.md`（追加）
 
-2. **写入规范**：
-   - 每个 md 文件 **< 200 行**，超出时拆分并用 `@` 引用关联
-   - 写入后更新最近的父级 AGENTS.md，添加 `@` 引用
+### 写入规范
 
-3. **确认后写入**：展示目标路径和内容预览，用户确认后才写入
-
-4. **不自动 commit**：git 操作由用户控制
+- 每个 md 文件 **< 200 行**，超出时拆分并用 `@` 引用关联
+- 写入前检查是否已有重复内容（grep 关键词），有则更新而非新建
+- 写入后更新最近的父级 AGENTS.md，添加 `@` 引用
+- 不自动 commit，git 操作由用户控制
 
 ## 维护规则
 
-读取已有 Skill 或 AGENTS.md 时，如果发现内容过时、不完整或有误，**先通过 `/ax:ax` 准备更新提案**，再经用户确认后写入。不要直接修改知识文件。
-
-## 多 Agent 范围
-
-当前 `/ax:ax` 适配两类 agent：
-
-- **Claude Code**：允许读取当前会话与 `~/.claude/projects` 下的本地历史
-- **Codex**：只读取当前会话上下文、git 变更和本次任务涉及的文件；不要猜测私有 transcript 路径
-
-在一次运行中，只能使用与**当前 agent**匹配的那一个历史 adapter，不能混读另一个 agent 的本地日志。
-
-## 输出格式
-
-### AGENTS.md 模板
-
-```markdown
-# {模块名}
-
-## Overview
-模块职责简述。
-
-## Module Index
-- @{子模块}/AGENTS.md — 说明
-
-## Deep Dive Docs
-- @docs/ai-context/{topic}.md — 说明
-```
-
-### Skill 模板
-
-```markdown
----
-name: {skill-name}
-description: "{什么场景下使用}"
----
-
-# {Skill Title}
-
-## When to Use
-触发条件。
-
-## Steps
-1. 步骤一
-2. 步骤二
-
-## Examples
-具体示例。
-```
+读取已有 Skill 或 AGENTS.md 时，如果发现内容过时、不完整或有误，通过 `/ax:ax` 准备更新提案或等待自动 review 处理。
 
 ## 跨 Agent 兼容
 
