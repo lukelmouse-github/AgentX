@@ -1,16 +1,5 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "",
@@ -19,28 +8,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.sh",
             "async": true
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-check.sh"
           }
         ]
       }
