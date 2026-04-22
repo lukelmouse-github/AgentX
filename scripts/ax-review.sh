@@ -7,6 +7,8 @@ TRANSCRIPT_PATH="$2"
 PROJECT_ROOT="$3"
 
 LOCK_FILE="/tmp/ax-review-${SESSION_ID}.lock"
+DONE_FILE="/tmp/ax-done-${SESSION_ID}"
+DONE_RESULT_FILE="/tmp/ax-done-result-${SESSION_ID}"
 
 cleanup() { rm -f "$LOCK_FILE"; }
 trap cleanup EXIT
@@ -33,9 +35,17 @@ If nothing is worth saving, just say 'Nothing to save.' and stop."
 
 cd "$PROJECT_ROOT"
 
-claude -p "$REVIEW_PROMPT" \
+REVIEW_OUTPUT=$(claude -p "$REVIEW_PROMPT" \
   --bare \
   --allowedTools "Read,Write,Edit,Bash,Grep,Glob" \
   --dangerously-skip-permissions \
   --max-budget-usd 2.00 \
-  > /dev/null 2>&1 || true
+  2>/dev/null) || true
+
+# Write completion marker for status line
+date +%s > "$DONE_FILE"
+if printf '%s' "$REVIEW_OUTPUT" | grep -qi 'nothing to save'; then
+  echo "skip" > "$DONE_RESULT_FILE"
+else
+  echo "done" > "$DONE_RESULT_FILE"
+fi
