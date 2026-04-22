@@ -1,0 +1,30 @@
+scripts/post-tool-use.sh
+  06f2c5926f5ae704 17-18,21-29,74-77,105
+skills/setup/SKILL.md
+  06f2c5926f5ae704 8,12,14,16,22,28,30,32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "97719c8762ead7dcd7ed9b6c03457e251c2cbd47",
+  "prompts": {
+    "06f2c5926f5ae704": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9331c860-a4b8-4b58-b7a8-a9095a684daf",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "luke",
+      "messages": [],
+      "total_additions": 210,
+      "total_deletions": 237,
+      "accepted_lines": 109,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_cccf52f3d03c50": {
+      "author": "luke"
+    }
+  }
+}
