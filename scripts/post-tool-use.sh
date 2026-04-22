@@ -14,8 +14,18 @@ CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
 
 STATE_FILE="/tmp/ax-state-${SESSION_ID}.json"
 TRIGGER_FILE="/tmp/ax-trigger-${SESSION_ID}"
-LOCK_FILE="/tmp/ax-review-${SESSION_ID}.lock"
+REVIEW_LOCK="/tmp/ax-review-${SESSION_ID}.lock"
+MUTEX_DIR="/tmp/ax-mutex-${SESSION_ID}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── Acquire lock (mkdir is atomic on all POSIX systems including macOS) ──
+RETRIES=0
+while ! mkdir "$MUTEX_DIR" 2>/dev/null; do
+  RETRIES=$((RETRIES + 1))
+  [ "$RETRIES" -gt 50 ] && exit 0  # give up after ~5s
+  sleep 0.1
+done
+trap 'rmdir "$MUTEX_DIR" 2>/dev/null' EXIT
 
 # ── Initialize or read state ──
 if [ -f "$STATE_FILE" ]; then
@@ -38,7 +48,6 @@ TURN_TOOL_COUNT=$((TURN_TOOL_COUNT + 1))
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   CURRENT_USERS=$(grep -c '"type":"user"' "$TRANSCRIPT_PATH" 2>/dev/null || echo 0)
   if [ "$CURRENT_USERS" -gt "$LAST_USERS" ]; then
-    # New turn started — check if previous turn was heavy
     if [ "$TURN_TOOL_COUNT" -gt 1 ] && [ "$((TURN_TOOL_COUNT - 1))" -ge 10 ]; then
       HEAVY_TURNS=$((HEAVY_TURNS + 1))
     fi
@@ -62,6 +71,10 @@ jq -nc \
   '{tool_count:$tc, turn_tool_count:$ttc, heavy_turns:$ht, brainstorm_count:$bc, last_transcript_users:$lu}' \
   > "$STATE_FILE"
 
+# ── Release lock before potentially long operations ──
+rmdir "$MUTEX_DIR" 2>/dev/null
+trap - EXIT
+
 # ── Check trigger conditions (OR) ──
 TRIGGERED=false
 [ "$BRAINSTORM_COUNT" -ge 3 ] && TRIGGERED=true
@@ -71,11 +84,6 @@ TRIGGERED=false
 NOW=$(date +%s)
 
 if [ "$TRIGGERED" = "true" ]; then
-  if [ ! -f "$TRIGGER_FILE" ]; then
-    # First trigger — start debounce
-    echo "$NOW" > "$TRIGGER_FILE"
-  fi
-  # Update timestamp (extend debounce)
   echo "$NOW" > "$TRIGGER_FILE"
   exit 0
 fi
@@ -94,12 +102,10 @@ fi
 
 # ── Debounce expired — launch review ──
 
-# Check lock (review already running)
-if [ -f "$LOCK_FILE" ] && kill -0 "$(cat "$LOCK_FILE" 2>/dev/null)" 2>/dev/null; then
+if [ -f "$REVIEW_LOCK" ] && kill -0 "$(cat "$REVIEW_LOCK" 2>/dev/null)" 2>/dev/null; then
   exit 0
 fi
 
-# Check if user already ran /ax manually
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   if grep -q '/ax' "$TRANSCRIPT_PATH" 2>/dev/null; then
     rm -f "$TRIGGER_FILE"
@@ -107,14 +113,11 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   fi
 fi
 
-# Resolve project root
 PROJECT_ROOT=$(cd "$CWD" && git rev-parse --show-toplevel 2>/dev/null || echo "$CWD")
 
-# Launch background review
 nohup bash "$SCRIPT_DIR/ax-review.sh" "$SESSION_ID" "$TRANSCRIPT_PATH" "$PROJECT_ROOT" \
   > /dev/null 2>&1 &
 
-# Reset state
 jq -nc '{tool_count:0, turn_tool_count:0, heavy_turns:0, brainstorm_count:0, last_transcript_users:0}' \
   > "$STATE_FILE"
 rm -f "$TRIGGER_FILE"
