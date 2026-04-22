@@ -7,11 +7,6 @@ description: "Project knowledge sedimentation — extract valuable knowledge fro
 
 Extract valuable knowledge from AI coding sessions and save it in repo-native paths.
 
-## 初次设置
-
-如果项目尚未配置沉淀决策脚本，可以先运行 `/ax:init` 为项目生成自定义的触发策略。
-该脚本会根据项目类型和关键文件，智能判断哪些对话值得触发沉淀建议，替代默认的工具调用计数。
-
 ## Usage
 
 ```text
