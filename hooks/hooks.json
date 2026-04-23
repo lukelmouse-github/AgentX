@@ -1,12 +1,12 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "Stop": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-hook.sh",
             "async": true
           }
         ]

@@ -26,14 +26,17 @@ echo "=== Plugin structure ==="
 assert "plugin.json exists" test -f "$REPO_ROOT/.claude-plugin/plugin.json"
 assert "marketplace.json exists" test -f "$REPO_ROOT/.claude-plugin/marketplace.json"
 assert "hooks.json exists" test -f "$REPO_ROOT/hooks/hooks.json"
-assert "post-tool-use.sh exists and is executable" test -x "$REPO_ROOT/scripts/post-tool-use.sh"
+assert "stop-hook.sh exists and is executable" test -x "$REPO_ROOT/scripts/stop-hook.sh"
 assert "ax-review.sh exists and is executable" test -x "$REPO_ROOT/scripts/ax-review.sh"
+assert "ax-log.sh exists" test -f "$REPO_ROOT/scripts/ax-log.sh"
 assert "ax SKILL.md exists" test -f "$REPO_ROOT/skills/ax/SKILL.md"
 assert "RULES.md exists" test -f "$REPO_ROOT/RULES.md"
 
 # ── 2. Deleted files must not exist ────────────────────────────────
 echo "=== Deleted files must not exist ==="
 
+assert "post-tool-use.sh removed" test ! -f "$REPO_ROOT/scripts/post-tool-use.sh"
+assert "status-line.sh removed" test ! -f "$REPO_ROOT/scripts/status-line.sh"
 assert "eval_profile.py removed" test ! -f "$REPO_ROOT/scripts/eval_profile.py"
 assert "stop-check.sh removed" test ! -f "$REPO_ROOT/scripts/stop-check.sh"
 assert "session-start.sh removed" test ! -f "$REPO_ROOT/scripts/session-start.sh"
@@ -41,17 +44,13 @@ assert "user-prompt-submit.sh removed" test ! -f "$REPO_ROOT/scripts/user-prompt
 assert "skills/init/ removed" test ! -d "$REPO_ROOT/skills/init"
 assert "install.sh removed" test ! -f "$REPO_ROOT/install.sh"
 assert "uninstall.sh removed" test ! -f "$REPO_ROOT/uninstall.sh"
-assert "manage_claude_settings.py removed" test ! -f "$REPO_ROOT/scripts/manage_claude_settings.py"
-assert "sync_claude_skills.py removed" test ! -f "$REPO_ROOT/scripts/sync_claude_skills.py"
-assert "hooks/session-start removed" test ! -f "$REPO_ROOT/hooks/session-start"
-assert "hooks/stop-check removed" test ! -f "$REPO_ROOT/hooks/stop-check"
-assert "eval-sedimentation-default.sh removed" test ! -f "$REPO_ROOT/scripts/eval-sedimentation-default.sh"
 
 # ── 3. Script syntax checks ───────────────────────────────────────
 echo "=== Script syntax checks ==="
 
-assert "post-tool-use.sh syntax ok" bash -n "$REPO_ROOT/scripts/post-tool-use.sh"
+assert "stop-hook.sh syntax ok" bash -n "$REPO_ROOT/scripts/stop-hook.sh"
 assert "ax-review.sh syntax ok" bash -n "$REPO_ROOT/scripts/ax-review.sh"
+assert "ax-log.sh syntax ok" bash -n "$REPO_ROOT/scripts/ax-log.sh"
 
 # ── 4. plugin.json validity ───────────────────────────────────────
 echo "=== plugin.json ==="
@@ -63,22 +62,21 @@ assert "plugin name is 'ax'" test "$PLUGIN_NAME" = "ax"
 echo "=== hooks.json ==="
 
 assert "hooks.json is valid JSON" jq . "$REPO_ROOT/hooks/hooks.json"
-assert "hooks.json contains PostToolUse" grep -q 'PostToolUse' "$REPO_ROOT/hooks/hooks.json"
+assert "hooks.json contains Stop" grep -q '"Stop"' "$REPO_ROOT/hooks/hooks.json"
+assert "hooks.json does NOT contain PostToolUse" test -z "$(grep 'PostToolUse' "$REPO_ROOT/hooks/hooks.json")"
 assert "hooks.json does NOT contain SessionStart" test -z "$(grep 'SessionStart' "$REPO_ROOT/hooks/hooks.json")"
-assert "hooks.json does NOT contain Stop" test -z "$(grep '"Stop"' "$REPO_ROOT/hooks/hooks.json")"
-assert "hooks.json does NOT contain UserPromptSubmit" test -z "$(grep 'UserPromptSubmit' "$REPO_ROOT/hooks/hooks.json")"
 
-# Verify PostToolUse is async
+# Verify Stop hook is async
 python3 - "$REPO_ROOT" <<'PY'
 import json, sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
 data = json.loads((root / "hooks" / "hooks.json").read_text())
-ptu = data["hooks"]["PostToolUse"][0]["hooks"][0]
-assert ptu.get("async") is True, "PostToolUse hook must be async"
+stop = data["hooks"]["Stop"][0]["hooks"][0]
+assert stop.get("async") is True, "Stop hook must be async"
 PY
-assert "PostToolUse hook is async" test $? -eq 0
+assert "Stop hook is async" test $? -eq 0
 
 # Verify hooks.json scripts all exist
 python3 - "$REPO_ROOT" <<'PY'
@@ -98,12 +96,21 @@ for event, entries in hooks.items():
 PY
 assert "hooks.json scripts all exist" test $? -eq 0
 
-# ── 6. Skill content checks ───────────────────────────────────────
+# ── 6. Logging checks ─────────────────────────────────────────────
+echo "=== Logging ==="
+
+assert "stop-hook.sh sources ax-log.sh" grep -q 'source.*ax-log.sh' "$REPO_ROOT/scripts/stop-hook.sh"
+assert "ax-review.sh sources ax-log.sh" grep -q 'source.*ax-log.sh' "$REPO_ROOT/scripts/ax-review.sh"
+assert "stop-hook.sh calls ax_log" grep -q 'ax_log' "$REPO_ROOT/scripts/stop-hook.sh"
+assert "ax-review.sh calls ax_log" grep -q 'ax_log' "$REPO_ROOT/scripts/ax-review.sh"
+
+# ── 7. Skill content checks ───────────────────────────────────────
 echo "=== Skill content ==="
 
 assert "ax SKILL.md mentions AGENTS.md" grep -q 'AGENTS.md' "$REPO_ROOT/skills/ax/SKILL.md"
 assert "RULES.md mentions /ax:ax" grep -q '/ax:ax' "$REPO_ROOT/RULES.md"
-assert "RULES.md mentions cross-agent" grep -q '跨 Agent' "$REPO_ROOT/RULES.md"
+assert "RULES.md mentions Stop hook" grep -q 'Stop hook' "$REPO_ROOT/RULES.md"
+assert "RULES.md mentions hard metrics" grep -q '硬指标' "$REPO_ROOT/RULES.md"
 
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""

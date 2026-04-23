@@ -12,14 +12,23 @@
 
 ## 自动沉淀
 
-AX 在 session 进行中自动检测沉淀时机。PostToolUse hook 追踪工具调用，满足以下任一条件即触发（OR）：
+AX 使用 Stop hook，在每轮 Claude 回答结束后自动评估沉淀时机。两层过滤：
 
-- 检测到 3 次 brainstorming skill 调用（深度设计/探索 session）
-- 检测到 3 轮重对话（单轮工具调用 >= 10 次，复杂多步任务）
+### 第一层：硬指标快筛（bash 脚本内完成，零成本）
 
-触发后有 1 分钟 debounce——如果用户仍在密集操作，延后执行，确保不打断工作。
+基于**当前 turn** 的指标判断，满足以下任一条件即通过（OR）：
 
-debounce 到期后，后台启动 `claude -p --bare` 读取当前 session 的完整 transcript，由 LLM 判断是否有值得沉淀的项目知识。如果有，直接写入项目。用户可以通过 `git diff` 查看、`git checkout -- <file>` 撤销。
+- 本轮 10+ 次工具调用（实质性工作）
+- 本轮调用了 brainstorming skill（设计/探索）
+- 本轮 100+ 行 transcript（深度回复）
+
+不满足则直接跳过，不消耗 LLM。
+
+### 第二层：LLM 价值判断（后台 sonnet，满足硬指标后启动）
+
+后台启动 `claude -p --model sonnet --bare` 读取提取后的对话内容，判断是否有值得沉淀的项目知识。如果有，直接写入项目。用户可以通过 `git diff` 查看、`git checkout -- <file>` 撤销。
+
+同一 session 内 review 完成后 10 分钟内不重复触发。
 
 用户也可以随时手动执行 `/ax:ax` 触发沉淀，不受自动机制限制。
 

@@ -6,81 +6,27 @@ AX 是一个 Claude Code plugin。它把 agent 在编码、排障、设计过程
 
 Coding agent 每次对话都在产生有价值的知识——架构分析、排障结论、设计决策——但这些知识在对话结束后就消失了。没有 AX 时，每次 agent 接触同一个模块都要重新读文件、重新推理，重复消耗 token。团队里一个人踩过的坑，其他人还会再踩一遍。
 
-AX 补上了从"产生知识"到"团队共享"的闭环：自动检测哪些对话值得沉淀，生成预览让人确认，写入 git 可追踪的通用路径，所有 agent 和所有团队成员都能消费。
-
-### 知识管理能力对比
-
-| 能力 | AX | Claude Code | Codex | Hermes Agent | OpenClaw |
-|------|:---:|:---:|:---:|:---:|:---:|
-| **自动检测值得沉淀的对话** | ✅ | — | — | ✅ | — |
-| **知识写入 git 共享路径** | ✅ | — | — | — | — |
-| **团队成员可消费** | ✅ | — | — | — | ✅ |
-| **跨 agent 通用格式** | ✅ | — | ✅ | — | ✅ |
-| **设计/探索类对话也能触发** | ✅ | — | — | — | — |
-| **项目技能沉淀（git tracked）** | ✅ | — | — | — | — |
-| **个人记忆** | — | ✅ | — | ✅ | ✅ |
-| **agent 自我进化（私有 skill）** | — | — | — | ✅ | ✅ |
-| **跨会话历史搜索** | — | — | — | ✅ | ✅ |
-| **作为插件无侵入集成** | ✅ | — | — | — | — |
-
-**关键区别：**
-
-- **Hermes Agent / OpenClaw** 的知识闭环是"agent 自己学、自己用"——skill 和 memory 存在 agent 私有目录，换个人、换个 agent 就失效
-- **Claude Code / Codex** 有一定的记忆能力，但不会主动检测和提示沉淀
-- **AX** 的定位是**项目知识资产管理**：知识属于项目而非个人，通过 git 共享给整个团队和所有 agent，写入由后台 LLM 自动完成
+AX 补上了从"产生知识"到"团队共享"的闭环：自动检测哪些对话值得沉淀，后台 LLM 判断并写入 git 可追踪的通用路径，所有 agent 和所有团队成员都能消费。
 
 核心原则：
 
 - 知识是项目资产，不是某个 agent 的私有记忆
-- 项目知识只写入 `AGENTS.md`、`docs/ai-context/`、`.agents/skills/`
+- 沉淀产物写入 `AGENTS.md`、`docs/ai-context/`、`.agents/skills/`、模块级 `AGENTS.md`
 - 沉淀在 session 中自动触发，后台 LLM 判断并直接写入
-- 沉淀产物使用通用格式，任何 coding agent 都能消费
+- 产物使用通用格式，任何 coding agent 都能消费
 
 ## 安装
 
 ```bash
-# 1. 添加 marketplace
+# 添加 marketplace 并安装
 /plugin marketplace add lukelmouse-github/AgentX
-
-# 2. 安装插件（选择 project scope 以便团队共享）
 /plugin install ax@lukelmouse-github
 
-# 3. 开启自动更新（可选，推荐）
-#    /plugin → Marketplaces → 选择 lukelmouse-github → Enable auto-update
-```
-
-本地开发测试：
-
-```bash
+# 本地开发测试
 claude --plugin-dir /path/to/ax
 ```
 
-安装后 AX 提供 skill 和自动 hook，无需改动项目文件。
-
-### 启用状态栏（可选，推荐）
-
-安装后运行 `/ax:setup` 即可在终端底部显示沉淀进度指示器。也可以手动配置 `~/.claude/settings.json`：
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bash <AX_PLUGIN_ROOT>/scripts/status-line.sh",
-    "refreshInterval": 3
-  }
-}
-```
-
-启用后效果：
-
-```text
-AX  heavy ●○○  brain ○○○        ← 积累中，距离触发还差
-AX  heavy ●●○  brain ●●○        ← 接近触发，颜色变亮
-AX ● triggered · debounce 42s   ← 已触发，等待冷却
-AX ⟳ reviewing transcript…      ← 后台 LLM 正在审查
-AX ✓ sediment written            ← 沉淀完成
-AX · nothing to save             ← 审查后无需沉淀
-```
+安装后运行 `/ax:setup` 初始化项目配置（创建 `.ax/config`）。
 
 ## 提供的能力
 
@@ -88,95 +34,132 @@ AX · nothing to save             ← 审查后无需沉淀
 
 | Skill | 调用方式 | 用途 |
 |-------|---------|------|
-| **ax** | `/ax:ax` 或 `/ax:ax <prompt>` | 从当前对话中提取知识，沉淀到项目知识库 |
-| **setup** | `/ax:setup` | 启用 AX 状态栏，显示沉淀进度 |
+| **ax** | `/ax:ax` 或 `/ax:ax <prompt>` | 手动从当前对话中提取知识，预览确认后写入 |
+| **setup** | `/ax:setup` | 初始化项目配置，创建 `.ax/config` |
 
 ### Hooks
 
 | 事件 | 行为 |
 |------|------|
-| **PostToolUse** | 异步追踪工具调用，满足触发条件后 debounce 1 分钟，后台启动 `claude -p` 读取 transcript 判断并写入知识 |
+| **Stop** | 每轮对话结束后，对最近 N 轮进行加权评分，达到阈值后启动后台 LLM review |
 
-## 使用方式
+## 自动沉淀机制
 
-### 初次设置
+### 加权评分
 
-无需配置。安装后 AX 自动在 session 中追踪工具调用模式，检测到深度工作后由 LLM 判断是否沉淀。
+Stop hook 在每轮结束时，对最近 N 轮对话（默认 3 轮）内的工具调用进行加权打分：
 
-### 日常使用
+| 信号 | 默认权重 | 说明 |
+|------|---------|------|
+| Agent/subagent 调用 | 30 | 多步骤重度工作 |
+| Edit/Write 调用 | 8 | 文件修改 |
+| Bash 调用 | 3 | Shell 操作 |
+| Read 调用 | 1 | 文件读取 |
+| brainstorming skill | 80 | 设计决策 |
+| 每 100 行 transcript | 10 | 对话复杂度 |
+
+总分达到阈值（默认 100）后触发后台 review。
+
+### 两层过滤
+
+1. **评分门槛**（廉价）— 加权打分，低于阈值直接跳过
+2. **LLM 判断**（昂贵）— 后台 `claude -p --model sonnet` 读取 transcript，判断是否有可沉淀知识并直接写入
+
+### 防护机制
+
+- 同一 session 已有 review 在运行时不重复触发
+- 两次 review 之间有冷却期（默认 600 秒）
+- 用户手动执行过 `/ax:ax` 时不再自动触发
+
+### 日志
+
+所有状态记录在 `~/.ax/log.log`（循环 300 行）：
 
 ```text
-/ax:ax                           # 全量扫描当前任务，推荐值得沉淀的内容
+STOP: scoring agents=2(*30) edits=3(*8) ... => score=120/100
+STOP: threshold met, checking guards
+REVIEW: started ...
+REVIEW: completed — changes:
+REVIEW:   AGENTS.md                          | 12 ++++
+REVIEW:   docs/ai-context/coroutine-model.md | 37 ++++++
+REVIEW: completed — new files:
+REVIEW:   docs/ai-context/api-gotchas.md
+```
+
+## 项目配置
+
+运行 `/ax:setup` 创建 `.ax/config`，直接修改值保存即可生效：
+
+```bash
+# 触发阈值（越高越不敏感）
+AX_SCORE_THRESHOLD=100
+
+# 各信号权重
+AX_WEIGHT_AGENT=30
+AX_WEIGHT_EDIT=8
+AX_WEIGHT_BASH=3
+AX_WEIGHT_READ=1
+AX_WEIGHT_BRAIN=80
+AX_WEIGHT_LINES=10
+
+# 评分窗口（最近几轮对话）
+AX_WINDOW_TURNS=3
+
+# review 冷却时间（秒）
+AX_REVIEW_COOLDOWN=600
+
+# 沉淀产物输出语言（默认中文）
+AX_REVIEW_LANGUAGE="中文"
+
+# 自定义 review 提示词（追加到 LLM review 提示词末尾）
+# AX_REVIEW_INSTRUCTIONS="
+# - 重点关注 src/core/ 下的架构变更
+# - 忽略测试文件的改动
+# "
+```
+
+`.ax/` 会被加入 `.gitignore`，配置仅本地生效。
+
+## 沉淀产物
+
+所有知识写入通用路径，不依赖 agent 专属目录：
+
+```text
+{project}/
+├── AGENTS.md                    # 项目主入口
+├── docs/ai-context/             # 架构、约定、排障结论
+├── .agents/skills/              # 可复用项目技能
+├── {module}/AGENTS.md           # 模块级上下文
+└── .ax/config                   # 项目配置（.gitignore）
+```
+
+## 手动使用
+
+```text
+/ax:ax                           # 全量扫描当前对话，推荐值得沉淀的内容
 /ax:ax 刚才排查的内存泄漏流程      # 围绕特定主题提炼
 /ax:ax architecture              # 仅更新架构知识
 /ax:ax skill debug-build-cache   # 创建或更新指定项目技能
 ```
 
-### 自动沉淀
-
-PostToolUse hook 在每次工具调用后异步追踪 session 状态。满足以下任一条件即触发沉淀检查（OR）：
-
-- 检测到 3 次 brainstorming skill 调用
-- 检测到 3 轮重对话（单轮工具调用 >= 10 次）
-
-触发后 debounce 1 分钟——如果用户仍在密集操作则延后，确保不打断工作。debounce 到期后，后台启动 `claude -p --bare` 读取当前 session 的完整 transcript，由 LLM 判断是否有值得沉淀的知识并直接写入项目。用户可以通过 `git diff` 查看、`git checkout -- <file>` 撤销不需要的内容。
-
-## 沉淀产物
-
-所有知识只写入通用路径，不依赖任何 agent 专属目录：
-
-```text
-{project}/
-├── AGENTS.md               # 项目主入口（所有 agent 可读）
-├── CLAUDE.md -> AGENTS.md  # Claude Code 入口（软链接）
-├── docs/ai-context/        # 架构、约定、排障结论
-├── .agents/skills/         # 可复用项目技能
-└── .ax/
-```
-
-| 产物 | 路径 | 说明 |
-|------|------|------|
-| 项目入口 | `AGENTS.md` | 所有 agent 通过 `AGENTS.md` 或 `CLAUDE.md` 读取 |
-| 架构知识 | `docs/ai-context/{topic}.md` | 通过 `@` 引用被发现 |
-| 项目技能 | `.agents/skills/{name}/SKILL.md` | 通用 skill 格式，git tracked |
-| 模块上下文 | `{module}/AGENTS.md` | 目录遍历发现 |
-
-## `/ax:ax` 的工作方式
-
-### 1. 只使用当前 agent 对应的历史 adapter
-
-- **Claude Code**：当前会话 + git 变更 + `~/.claude/projects` 下最近会话
-- **Codex**：当前会话 + git 变更 + 本次任务读写过的文件
-
-同一次运行中，不混读另一个 agent 的本地历史。
-
-### 2. 只输出到通用知识路径
-
-- 架构/约定/排障结论 → `docs/ai-context/{topic}.md`
-- 可复用流程 → `.agents/skills/{name}/SKILL.md`
-- 模块上下文 → `{module}/AGENTS.md`
-
-### 3. 两种触发方式
-
-- **自动**：PostToolUse hook 检测到深度工作后，后台 `claude -p` 读取 transcript 并直接写入
-- **手动**：用户执行 `/ax:ax`，在当前对话中预览并确认后写入
+手动模式下会预览并等待确认后再写入。
 
 ## Plugin 目录结构
 
 ```text
 ax/
-├── .claude-plugin/
-│   └── plugin.json                    # Plugin manifest
 ├── hooks/
-│   └── hooks.json                     # PostToolUse only
+│   └── hooks.json          # Stop hook 配置
 ├── skills/
-│   ├── ax/SKILL.md                    # 主沉淀 skill（/ax:ax）
-│   └── setup/SKILL.md                 # 状态栏启用 skill（/ax:setup）
+│   ├── ax/SKILL.md         # 主沉淀 skill（/ax:ax）
+│   └── setup/SKILL.md      # 项目初始化 skill（/ax:setup）
 ├── scripts/
-│   ├── post-tool-use.sh               # PostToolUse hook（状态追踪 + 触发检测 + debounce）
-│   ├── ax-review.sh                   # 后台 claude -p 审查执行体
-│   └── status-line.sh                 # 状态栏渲染脚本
-├── RULES.md                           # 沉淀规则
+│   ├── stop-hook.sh        # Stop hook（加权评分 + 触发检测）
+│   ├── ax-review.sh        # 后台 LLM review 执行体
+│   └── ax-log.sh           # 日志工具
+├── tests/
+│   └── plugin_smoke.sh     # 冒烟测试
+├── RULES.md                # 沉淀规则
 └── README.md
 ```
 
