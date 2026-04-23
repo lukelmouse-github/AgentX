@@ -1,0 +1,12 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "cadba2326adf72ccb893aae81fbc0f9d131c75c4",
+  "prompts": {},
+  "humans": {
+    "h_cccf52f3d03c50": {
+      "author": "luke"
+    }
+  }
+}
